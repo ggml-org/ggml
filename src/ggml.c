@@ -1685,6 +1685,7 @@ void * ggml_new_buffer(struct ggml_context * ctx, size_t nbytes) {
 }
 
 struct ggml_tensor * ggml_dup_tensor(struct ggml_context * ctx, const struct ggml_tensor * src) {
+    assert(src);
     return ggml_new_tensor(ctx, src->type, GGML_MAX_DIMS, src->ne);
 }
 
@@ -2731,6 +2732,8 @@ struct ggml_tensor * ggml_mul_mat(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
         struct ggml_tensor  * b) {
+    assert(a);
+    assert(b);
     GGML_ASSERT(ggml_can_mul_mat(a, b));
     GGML_ASSERT(!ggml_is_transposed(a));
 
