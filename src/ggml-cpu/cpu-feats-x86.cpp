@@ -266,6 +266,10 @@ static int ggml_backend_cpu_x86_score() {
     int score = 0;
     cpuid_x86 is;
 
+#ifdef GGML_SSE42
+    if (!is.SSE42()) { return 0; }
+    score += 1<<2;
+#endif
 #ifdef GGML_FMA
     if (!is.FMA()) { return 0; }
     score += 1;
@@ -273,10 +277,6 @@ static int ggml_backend_cpu_x86_score() {
 #ifdef GGML_F16C
     if (!is.F16C()) { return 0; }
     score += 1<<1;
-#endif
-#ifdef GGML_SSE42
-    if (!is.SSE42()) { return 0; }
-    score += 1<<2;
 #endif
 #ifdef GGML_AVX
     if (!is.AVX()) { return 0; }
