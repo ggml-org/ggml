@@ -6101,7 +6101,7 @@ static void ggml_compute_forward_concat_any(
     const struct ggml_tensor * src0 = dst->src[0];
     const struct ggml_tensor * src1 = dst->src[1];
 
-    GGML_ASSERT(src0->type == dst->type);
+    GGML_ASSERT(src0->type == src1->type);
     const size_t len = ggml_type_size(src0->type);
 
     const int ith = params->ith;
@@ -6145,7 +6145,7 @@ static void ggml_compute_forward_concat_i8(
     const struct ggml_tensor * src0 = dst->src[0];
     const struct ggml_tensor * src1 = dst->src[1];
 
-    GGML_ASSERT(src0->nb[0] == sizeof(int8_t));
+    GGML_ASSERT(ggml_type_size(src0->type) == sizeof(int8_t));
 
     const int ith = params->ith;
     const int nth = params->nth;
@@ -6188,7 +6188,7 @@ static void ggml_compute_forward_concat_f16(
     const struct ggml_tensor * src0 = dst->src[0];
     const struct ggml_tensor * src1 = dst->src[1];
 
-    GGML_ASSERT(src0->nb[0] == sizeof(ggml_fp16_t));
+    GGML_ASSERT(ggml_type_size(src0->type) == sizeof(ggml_fp16_t));
 
     const int ith = params->ith;
     const int nth = params->nth;
@@ -6231,7 +6231,7 @@ static void ggml_compute_forward_concat_f32(
     const struct ggml_tensor * src0 = dst->src[0];
     const struct ggml_tensor * src1 = dst->src[1];
 
-    GGML_ASSERT(src0->nb[0] == sizeof(float));
+    GGML_ASSERT(ggml_type_size(src0->type) == sizeof(float));
 
     const int ith = params->ith;
     const int nth = params->nth;
