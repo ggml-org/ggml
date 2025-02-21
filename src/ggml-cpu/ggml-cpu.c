@@ -6101,7 +6101,6 @@ static void ggml_compute_forward_concat_any(
     const struct ggml_tensor * src0 = dst->src[0];
     const struct ggml_tensor * src1 = dst->src[1];
 
-    GGML_ASSERT(src0->type == src1->type);
     const size_t len = ggml_type_size(src0->type);
 
     const int ith = params->ith;
@@ -6272,6 +6271,8 @@ static void ggml_compute_forward_concat(
     struct ggml_tensor * dst) {
 
     const struct ggml_tensor * src0 = dst->src[0];
+
+    GGML_ASSERT(src0->type == dst->src[1]->type);
 
     switch (src0->type) {
         case GGML_TYPE_F16:
