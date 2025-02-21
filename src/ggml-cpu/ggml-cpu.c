@@ -6101,7 +6101,8 @@ static void ggml_compute_forward_concat_any(
     const struct ggml_tensor * src0 = dst->src[0];
     const struct ggml_tensor * src1 = dst->src[1];
 
-    const size_t len = src0->nb[0];
+    GGML_ASSERT(src0->type == dst->type);
+    const size_t len = ggml_type_size(src0->type);
 
     const int ith = params->ith;
     const int nth = params->nth;
@@ -6290,8 +6291,6 @@ static void ggml_compute_forward_concat(
             } break;
         default:
             {
-                //GGML_ABORT("fatal error");
-                //printf("bytes: %lu\n", src0->nb[0]);
                 ggml_compute_forward_concat_any(params, dst);
             }
     }
