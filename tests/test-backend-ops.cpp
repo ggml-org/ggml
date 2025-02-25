@@ -3942,37 +3942,38 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
             test_cases.emplace_back(new test_bin_bcast(op, type, ne, nr));
         }
     };
+    for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
+        add_test_bin_bcast(type, {1, 1, 8, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1, 1}, {32, 1, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 320, 320}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 1, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {2, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 2, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 1, 2, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 1, 1, 2});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 1, 2, 2});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 2, 2, 2});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {2, 2, 2, 2});
 
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 8, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1, 1}, {32, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 320, 320}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 1, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {2, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 2, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 1, 2, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 1, 1, 2});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 1, 2, 2});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 2, 2, 2});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {2, 2, 2, 2});
-
-    // stable diffusion
-    add_test_bin_bcast(GGML_TYPE_F32, {1280, 1, 1, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1280, 1, 1, 1}, {1, 16, 16, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1280, 16, 16, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1280, 1, 1, 1}, {1, 256, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1280, 1}, {16, 16, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {16, 16, 1280, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1920, 1}, {16, 16, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 2560, 1}, {16, 16, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1280, 1}, {32, 32, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1920, 1}, {32, 32, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 640, 1}, {32, 32, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {5120, 1, 1, 1}, {1, 256, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {640, 1, 1, 1}, {1, 1, 1, 1});
-    //add_test_bin_bcast(GGML_TYPE_F32, {3, 3, 2560, 1280}, {1, 1, 1, 1});
-    //add_test_bin_bcast(GGML_TYPE_F32, {3, 3, 2560, 1280}, {2, 1, 1, 1});
+        // stable diffusion
+        add_test_bin_bcast(type, {1280, 1, 1, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {1280, 1, 1, 1}, {1, 16, 16, 1});
+        add_test_bin_bcast(type, {1280, 16, 16, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {1280, 1, 1, 1}, {1, 256, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1280, 1}, {16, 16, 1, 1});
+        add_test_bin_bcast(type, {16, 16, 1280, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1920, 1}, {16, 16, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 2560, 1}, {16, 16, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1280, 1}, {32, 32, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1920, 1}, {32, 32, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 640, 1}, {32, 32, 1, 1});
+        add_test_bin_bcast(type, {5120, 1, 1, 1}, {1, 256, 1, 1});
+        add_test_bin_bcast(type, {640, 1, 1, 1}, {1, 1, 1, 1});
+        //add_test_bin_bcast(type, {3, 3, 2560, 1280}, {1, 1, 1, 1});
+        //add_test_bin_bcast(type, {3, 3, 2560, 1280}, {2, 1, 1, 1});
+    }
 
     test_cases.emplace_back(new test_add1());
     test_cases.emplace_back(new test_scale());
