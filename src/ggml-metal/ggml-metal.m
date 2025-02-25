@@ -1204,17 +1204,18 @@ static bool ggml_metal_supports_op(const struct ggml_backend_metal_device_contex
                 default:
                     return false;
             }
+        case GGML_OP_ADD:
+        case GGML_OP_SUB:
+        case GGML_OP_MUL:
+        case GGML_OP_DIV:
+            return op->src[0]->type == GGML_TYPE_F32;
         case GGML_OP_NONE:
         case GGML_OP_RESHAPE:
         case GGML_OP_VIEW:
         case GGML_OP_TRANSPOSE:
         case GGML_OP_PERMUTE:
         case GGML_OP_CONCAT:
-        case GGML_OP_ADD:
-        case GGML_OP_SUB:
         case GGML_OP_ACC:
-        case GGML_OP_MUL:
-        case GGML_OP_DIV:
         case GGML_OP_REPEAT:
         case GGML_OP_SCALE:
         case GGML_OP_CLAMP:
