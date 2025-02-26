@@ -1254,7 +1254,7 @@ struct test_count_equal : public test_case {
         ggml_tensor * b = ggml_new_tensor(ctx, type, 4, ne.data());
         ggml_set_name(b, "b");
 
-        ggml_tensor * b_argmax = ggml_argmax(ctx, a);
+        ggml_tensor * b_argmax = ggml_argmax(ctx, b);
         ggml_set_name(b_argmax, "b_argmax");
 
         ggml_tensor * out = ggml_count_equal(ctx, a_argmax, b_argmax);
@@ -1511,6 +1511,7 @@ struct test_cont : public test_case {
 };
 
 // GGML_OP_ADD
+// GGML_OP_SUB
 // GGML_OP_MUL
 // GGML_OP_DIV
 struct test_bin_bcast : public test_case {
@@ -3118,6 +3119,7 @@ struct test_leaky_relu : public test_case {
 struct test_flash_attn_ext : public test_case {
     const int64_t hs; // head size
     const int64_t nh; // num heads
+    const int64_t nr; // repeat in Q, tests for grouped-query attention
     const int64_t kv; // kv size
     const int64_t nb; // batch size
 
@@ -3130,7 +3132,7 @@ struct test_flash_attn_ext : public test_case {
     std::array<int32_t, 4> permute;
 
     std::string vars() override {
-        return VARS_TO_STR9(hs, nh, kv, nb, mask, max_bias, logit_softcap, type_KV, permute);
+        return VARS_TO_STR10(hs, nh, nr, kv, nb, mask, max_bias, logit_softcap, type_KV, permute);
     }
 
     double max_nmse_err() override {
@@ -3141,13 +3143,13 @@ struct test_flash_attn_ext : public test_case {
         GGML_UNUSED(t);
         // Just counting matmul costs:
         // Q*K^T is nb x hs x kv, P*V is nb x kv x hs, per head
-        return 2 * 2 * nh * nb * hs * kv;
+        return 2 * 2 * nh*nr * nb * hs * kv;
     }
 
-    test_flash_attn_ext(int64_t hs = 128, int64_t nh = 32, int64_t kv = 96, int64_t nb = 8,
+    test_flash_attn_ext(int64_t hs = 128, int64_t nh = 32, int64_t nr = 1, int64_t kv = 96, int64_t nb = 8,
                         bool mask = true, float max_bias = 0.0f, float logit_softcap = 0.0f, ggml_type type_KV = GGML_TYPE_F16,
                         std::array<int32_t, 4> permute = {0, 1, 2, 3})
-        : hs(hs), nh(nh), kv(kv), nb(nb), mask(mask), max_bias(max_bias), logit_softcap(logit_softcap), type_KV(type_KV), permute(permute) {}
+        : hs(hs), nh(nh), nr(nr), kv(kv), nb(nb), mask(mask), max_bias(max_bias), logit_softcap(logit_softcap), type_KV(type_KV), permute(permute) {}
 
     ggml_tensor * build_graph(ggml_context * ctx) override {
         const int64_t hs_padded = GGML_PAD(hs, ggml_blck_size(type_KV));
@@ -3165,13 +3167,13 @@ struct test_flash_attn_ext : public test_case {
             return t;
         };
 
-        ggml_tensor * q = create_permuted(GGML_TYPE_F32, hs_padded, nb, nh, 1);
+        ggml_tensor * q = create_permuted(GGML_TYPE_F32, hs_padded, nb, nh*nr, 1);
         ggml_set_name(q, "q");
 
-        ggml_tensor * k = create_permuted(type_KV,       hs_padded, kv, nh, 1);
+        ggml_tensor * k = create_permuted(type_KV,       hs_padded, kv, nh,    1);
         ggml_set_name(k, "k");
 
-        ggml_tensor * v = create_permuted(type_KV,       hs_padded, kv, nh, 1);
+        ggml_tensor * v = create_permuted(type_KV,       hs_padded, kv, nh,    1);
         ggml_set_name(v, "v");
 
         ggml_tensor * m = nullptr;
@@ -3860,7 +3862,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_conv_transpose_1d({3,2,1,1}, {3,1,2,1}, 1, 0, 1));
     test_cases.emplace_back(new test_conv_transpose_1d({2,1,1,1}, {3,1,1,1}, 1, 0, 1));
 
-    test_cases.emplace_back(new test_count_equal());
+    test_cases.emplace_back(new test_count_equal(GGML_TYPE_F32, {4,  500, 1, 1}));
+    test_cases.emplace_back(new test_count_equal(GGML_TYPE_F32, {4, 5000, 1, 1}));
 
     test_cases.emplace_back(new test_argmax(GGML_TYPE_F32, {32,    1, 1, 1}));
     test_cases.emplace_back(new test_argmax(GGML_TYPE_F32, {100,  10, 1, 1}));
@@ -3885,8 +3888,6 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         test_cases.emplace_back(new test_repeat_back(GGML_TYPE_F32, {8, 6, 4, 2}, {1, 2, 1, 1}, view));
         test_cases.emplace_back(new test_repeat_back(GGML_TYPE_F32, {8, 6, 4, 2}, {1, 1, 2, 1}, view));
         test_cases.emplace_back(new test_repeat_back(GGML_TYPE_F32, {8, 6, 4, 2}, {1, 1, 1, 2}, view));
-        test_cases.emplace_back(new test_repeat_back(GGML_TYPE_I32, {8, 6, 4, 2}, {2, 1, 1, 1}, view));
-        test_cases.emplace_back(new test_repeat_back(GGML_TYPE_I16, {8, 6, 4, 2}, {1, 1, 1, 2}, view));
     }
 
     test_cases.emplace_back(new test_dup(GGML_TYPE_F32));
@@ -3938,41 +3939,42 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_cont(GGML_TYPE_BF16, {2, 3, 5 ,7}));
 
     auto add_test_bin_bcast = [&](ggml_type type, std::array<int64_t, 4> ne, std::array<int, 4> nr) {
-        for (auto op : {ggml_add, ggml_mul, ggml_div}) {
+        for (auto op : {ggml_add, ggml_sub, ggml_mul, ggml_div}) {
             test_cases.emplace_back(new test_bin_bcast(op, type, ne, nr));
         }
     };
+    for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
+        add_test_bin_bcast(type, {1, 1, 8, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1, 1}, {32, 1, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 320, 320}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 1, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {2, 1, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 2, 1, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 1, 2, 1});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 1, 1, 2});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 1, 2, 2});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {1, 2, 2, 2});
+        add_test_bin_bcast(type, {10, 5, 4, 3}, {2, 2, 2, 2});
 
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 8, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1, 1}, {32, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 320, 320}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 1, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {2, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 2, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 1, 2, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 1, 1, 2});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 1, 2, 2});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {1, 2, 2, 2});
-    add_test_bin_bcast(GGML_TYPE_F32, {10, 5, 4, 3}, {2, 2, 2, 2});
-
-    // stable diffusion
-    add_test_bin_bcast(GGML_TYPE_F32, {1280, 1, 1, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1280, 1, 1, 1}, {1, 16, 16, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1280, 16, 16, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1280, 1, 1, 1}, {1, 256, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1280, 1}, {16, 16, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {16, 16, 1280, 1}, {1, 1, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1920, 1}, {16, 16, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 2560, 1}, {16, 16, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1280, 1}, {32, 32, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 1920, 1}, {32, 32, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {1, 1, 640, 1}, {32, 32, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {5120, 1, 1, 1}, {1, 256, 1, 1});
-    add_test_bin_bcast(GGML_TYPE_F32, {640, 1, 1, 1}, {1, 1, 1, 1});
-    //add_test_bin_bcast(GGML_TYPE_F32, {3, 3, 2560, 1280}, {1, 1, 1, 1});
-    //add_test_bin_bcast(GGML_TYPE_F32, {3, 3, 2560, 1280}, {2, 1, 1, 1});
+        // stable diffusion
+        add_test_bin_bcast(type, {1280, 1, 1, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {1280, 1, 1, 1}, {1, 16, 16, 1});
+        add_test_bin_bcast(type, {1280, 16, 16, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {1280, 1, 1, 1}, {1, 256, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1280, 1}, {16, 16, 1, 1});
+        add_test_bin_bcast(type, {16, 16, 1280, 1}, {1, 1, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1920, 1}, {16, 16, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 2560, 1}, {16, 16, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1280, 1}, {32, 32, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 1920, 1}, {32, 32, 1, 1});
+        add_test_bin_bcast(type, {1, 1, 640, 1}, {32, 32, 1, 1});
+        add_test_bin_bcast(type, {5120, 1, 1, 1}, {1, 256, 1, 1});
+        add_test_bin_bcast(type, {640, 1, 1, 1}, {1, 1, 1, 1});
+        //add_test_bin_bcast(type, {3, 3, 2560, 1280}, {1, 1, 1, 1});
+        //add_test_bin_bcast(type, {3, 3, 2560, 1280}, {2, 1, 1, 1});
+    }
 
     test_cases.emplace_back(new test_add1());
     test_cases.emplace_back(new test_scale());
@@ -4278,14 +4280,18 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                 if (!mask && max_bias > 0.0f) continue;
                 for (float logit_softcap : {0.0f, 10.0f}) {
                     if (hs != 128 && logit_softcap != 0.0f) continue;
-                    for (int nh : { 32, }) {
-                        for (int kv : { 512, 1024, }) {
-                            for (int nb : { 1, 3, 32, 35, }) {
-                                for (ggml_type type_KV : {GGML_TYPE_F16, GGML_TYPE_BF16, GGML_TYPE_Q8_0, GGML_TYPE_Q4_0}) {
-                                    test_cases.emplace_back(new test_flash_attn_ext(hs, nh, kv, nb, mask, max_bias, logit_softcap, type_KV));
-                                    // run fewer test cases permuted
-                                    if (mask == true && max_bias == 0.0f && logit_softcap == 0 && kv == 512) {
-                                        test_cases.emplace_back(new test_flash_attn_ext(hs, nh, kv, nb, mask, max_bias, logit_softcap, type_KV, {0, 2, 1, 3}));
+                    for (int nh : { 4, }) {
+                        for (int nr : { 1, 4, 16 }) {
+                            if (nr == 16 && hs != 128) continue;
+                            for (int kv : { 512, 1024, }) {
+                                if (nr != 1 && kv != 512) continue;
+                                for (int nb : { 1, 3, 32, 35, }) {
+                                    for (ggml_type type_KV : {GGML_TYPE_F16, GGML_TYPE_BF16, GGML_TYPE_Q8_0, GGML_TYPE_Q4_0}) {
+                                        test_cases.emplace_back(new test_flash_attn_ext(hs, nh, nr, kv, nb, mask, max_bias, logit_softcap, type_KV));
+                                        // run fewer test cases permuted
+                                        if (mask == true && max_bias == 0.0f && logit_softcap == 0 && kv == 512) {
+                                            test_cases.emplace_back(new test_flash_attn_ext(hs, nh, nr, kv, nb, mask, max_bias, logit_softcap, type_KV, {0, 2, 1, 3}));
+                                        }
                                     }
                                 }
                             }
