@@ -3753,10 +3753,12 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     std::default_random_engine rng(0);
 
     // unary ops
-    for (int v : {0, 1}) {
-        for (int op = 0; op < GGML_UNARY_OP_COUNT; op++) {
-            test_cases.emplace_back(new test_unary((ggml_unary_op) op, GGML_TYPE_F32, { 128, 2, 2, 2 }, v));
-            test_cases.emplace_back(new test_unary((ggml_unary_op) op, GGML_TYPE_F32, { 5, 7, 11, 13 }, v));
+    for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
+        for (int v : {0, 1}) {
+            for (int op = 0; op < GGML_UNARY_OP_COUNT; op++) {
+                test_cases.emplace_back(new test_unary((ggml_unary_op) op, type, { 128, 2, 2, 2 }, v));
+                test_cases.emplace_back(new test_unary((ggml_unary_op) op, type, { 5, 7, 11, 13 }, v));
+            }
         }
     }
 
@@ -3978,7 +3980,10 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
 
     test_cases.emplace_back(new test_add1());
     test_cases.emplace_back(new test_scale());
-    test_cases.emplace_back(new test_silu_back());
+
+    for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
+        test_cases.emplace_back(new test_silu_back());
+    }
 
     for (float eps : {0.0f, 1e-6f, 1e-4f, 1e-1f}) {
         for (bool v : {false, true}) {
@@ -4138,12 +4143,14 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         }
     }
 
-    test_cases.emplace_back(new test_sqr());
-    test_cases.emplace_back(new test_sqrt());
-    test_cases.emplace_back(new test_log());
-    test_cases.emplace_back(new test_sin());
-    test_cases.emplace_back(new test_cos());
-    test_cases.emplace_back(new test_clamp());
+    for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
+        test_cases.emplace_back(new test_sqr(type));
+        test_cases.emplace_back(new test_sqrt(type));
+        test_cases.emplace_back(new test_log(type));
+        test_cases.emplace_back(new test_sin(type));
+        test_cases.emplace_back(new test_cos(type));
+        test_cases.emplace_back(new test_clamp(type));
+    }
 
     test_cases.emplace_back(new test_diag_mask_inf(GGML_TYPE_F32, {10, 10, 1, 1}, 5));
     test_cases.emplace_back(new test_diag_mask_inf(GGML_TYPE_F32, {10, 10, 3, 1}, 5));
