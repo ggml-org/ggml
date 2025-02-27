@@ -7,7 +7,7 @@ on:
     branches: [ master ]
 
 jobs:
-  test-macos-metal:
+  test-macos:
     runs-on: macos-13
     env:
       GGML_NLOOP: 3
@@ -33,7 +33,6 @@ jobs:
       run: ctest --verbose --timeout 900
 
   build:
-
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
