@@ -3980,10 +3980,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
 
     test_cases.emplace_back(new test_add1());
     test_cases.emplace_back(new test_scale());
-
-    for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
-        test_cases.emplace_back(new test_silu_back());
-    }
+    test_cases.emplace_back(new test_silu_back());
 
     for (float eps : {0.0f, 1e-6f, 1e-4f, 1e-1f}) {
         for (bool v : {false, true}) {
