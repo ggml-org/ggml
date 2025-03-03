@@ -23,16 +23,17 @@
 #include <algorithm>
 #include <array>
 #include <cfloat>
-#include <cstdint>
-#include <cstring>
 #include <cinttypes>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <future>
 #include <memory>
 #include <random>
-#include <stdio.h>
-#include <stdlib.h>
+#include <regex>
 #include <string>
 #include <thread>
-#include <future>
 #include <vector>
 
 static void init_tensor_uniform(ggml_tensor * tensor, float min = -1.0f, float max = 1.0f) {
@@ -4387,9 +4388,27 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
     return test_cases;
 }
 
-static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op_name) {
+static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op_name, const char * params_filter) {
+    auto filter_test_cases = [](std::vector<std::unique_ptr<test_case>> & test_cases, const char * params_filter) {
+        if (params_filter == nullptr) {
+            return;
+        }
+
+        std::regex params_filter_regex(params_filter);
+
+        for (auto it = test_cases.begin(); it != test_cases.end();) {
+            if (!std::regex_search((*it)->vars(), params_filter_regex)) {
+                it = test_cases.erase(it);
+                continue;
+            }
+
+            it++;
+        }
+    };
+
     if (mode == MODE_TEST) {
         auto test_cases = make_test_cases_eval();
+        filter_test_cases(test_cases, params_filter);
         ggml_backend_t backend_cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, NULL);
         if (backend_cpu == NULL) {
             printf("  Failed to initialize CPU backend\n");
@@ -4411,6 +4430,7 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
 
     if (mode == MODE_GRAD) {
         auto test_cases = make_test_cases_eval();
+        filter_test_cases(test_cases, params_filter);
         size_t n_ok = 0;
         for (auto & test : test_cases) {
             if (test->eval_grad(backend, op_name)) {
@@ -4424,6 +4444,7 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
 
     if (mode == MODE_PERF) {
         auto test_cases = make_test_cases_perf();
+        filter_test_cases(test_cases, params_filter);
         for (auto & test : test_cases) {
             test->eval_perf(backend, op_name);
         }
@@ -4434,7 +4455,7 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
 }
 
 static void usage(char ** argv) {
-    printf("Usage: %s [mode] [-o op] [-b backend]\n", argv[0]);
+    printf("Usage: %s [mode] [-o <op>] [-b <backend>] [-p <params regex>]\n", argv[0]);
     printf("    valid modes:\n");
     printf("      - test (default, compare with CPU backend for correctness)\n");
     printf("      - grad (compare gradients from backpropagation with method of finite differences)\n");
@@ -4444,8 +4465,9 @@ static void usage(char ** argv) {
 
 int main(int argc, char ** argv) {
     test_mode mode = MODE_TEST;
-    const char * op_name_filter = NULL;
-    const char * backend_filter = NULL;
+    const char * op_name_filter = nullptr;
+    const char * backend_filter = nullptr;
+    const char * params_filter = nullptr;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "test") == 0) {
@@ -4464,6 +4486,13 @@ int main(int argc, char ** argv) {
         } else if (strcmp(argv[i], "-b") == 0) {
             if (i + 1 < argc) {
                 backend_filter = argv[++i];
+            } else {
+                usage(argv);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "-p") == 0) {
+            if (i + 1 < argc) {
+                params_filter = argv[++i];
             } else {
                 usage(argv);
                 return 1;
@@ -4514,7 +4543,7 @@ int main(int argc, char ** argv) {
         printf("  Device memory: %zu MB (%zu MB free)\n", total / 1024 / 1024, free / 1024 / 1024);
         printf("\n");
 
-        bool ok = test_backend(backend, mode, op_name_filter);
+        bool ok = test_backend(backend, mode, op_name_filter, params_filter);
 
         printf("  Backend %s: ", ggml_backend_name(backend));
         if (ok) {
