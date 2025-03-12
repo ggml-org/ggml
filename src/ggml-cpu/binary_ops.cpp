@@ -54,6 +54,10 @@ static void apply_binary_op(const struct ggml_compute_params * params, struct gg
     const auto [ir0, ir1] = get_thread_range(params, src0);
     const bool is_src1_contiguous = (nb10 == sizeof(src1_t));
 
+    if (!is_src1_contiguous) { // broadcast not implemented yet for non-contiguous
+        GGML_ASSERT(ggml_are_same_shape(src0, src1));
+    }
+
 #ifdef GGML_USE_ACCELERATE
     vDSP_fn_t(vDSP_op) = nullptr;
     // TODO - avoid the f32-only check using type 'trait' lookup tables and row-based src-to-float conversion functions
@@ -90,7 +94,7 @@ static void apply_binary_op(const struct ggml_compute_params * params, struct gg
             for (int64_t r = 0; r < nr0; ++r) {
 #ifdef GGML_USE_ACCELERATE
                 if (vDSP_op != nullptr) {
-                    vDSP_op(src0_ptr + r*ne10, 1, src1_ptr, 1, dst_ptr + r*ne10, 1, ne10);
+                    vDSP_op((float *)src1_ptr, 1, (float *)src0_ptr + r*ne10, 1, (float *)dst_ptr + r*ne10, 1, ne10);
                     continue;
                 }
 #endif

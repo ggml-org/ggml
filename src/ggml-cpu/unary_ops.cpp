@@ -21,7 +21,7 @@ static inline float op_tanh(float x) {
 }
 
 static inline float op_elu(float x) {
-    return expm1f(x);
+    return (x > 0.f) ? x : expm1f(x);
 }
 
 static inline float op_relu(float x) {
