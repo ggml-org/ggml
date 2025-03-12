@@ -34,7 +34,7 @@ template <float (*op)(float, float), typename src0_t, float (*src0_to_f32)(src0_
 static inline void vec_binary_op_non_contiguous(const int64_t n, const int64_t ne10, const int64_t nb10, dst_t * z, const src0_t * x, const src1_t * y) {
     for (int i = 0; i < n; i++) {
         int i10 = i % ne10;
-        src1_t * y_ptr = (src1_t *)(y + i10*nb10);
+        src1_t * y_ptr = (src1_t *)((char *)y + i10*nb10);
         z[i] = f32_to_dst(op(src0_to_f32(x[i]), src1_to_f32(*y_ptr)));
     }
 }
