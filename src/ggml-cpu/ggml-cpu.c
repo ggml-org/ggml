@@ -9,8 +9,8 @@
 #include "ggml-impl.h"
 #include "ggml-cpu-quants.h"
 #include "ggml-threading.h"
-#include "ggml-cpu/unary_ops.h"
-#include "ggml-cpu/binary_ops.h"
+#include "ggml-cpu/unary-ops.h"
+#include "ggml-cpu/binary-ops.h"
 #include "ggml.h"
 
 #if defined(_MSC_VER) || defined(__MINGW32__)

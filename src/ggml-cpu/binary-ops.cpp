@@ -1,4 +1,4 @@
-#include "binary_ops.h"
+#include "binary-ops.h"
 
 #if defined(GGML_USE_ACCELERATE)
 #include <Accelerate/Accelerate.h>
@@ -41,15 +41,15 @@ static inline void vec_binary_op_non_contiguous(const int64_t n, const int64_t n
 
     for (int i = 0; i < n; i++) {
         int i10 = i % ne10;
-        src1_t * y_ptr = (src1_t *)((char *)y + i10*nb10);
+        const src1_t * y_ptr = (const src1_t *)((const char *)y + i10*nb10);
         z[i] = f32_to_dst(op(src0_to_f32(x[i]), src1_to_f32(*y_ptr)));
     }
 }
 
 template <float (*op)(float, float), typename src0_t, typename src1_t, typename dst_t>
-static void apply_binary_op(const struct ggml_compute_params * params, struct ggml_tensor * dst) {
-    const struct ggml_tensor * src0 = dst->src[0];
-    const struct ggml_tensor * src1 = dst->src[1];
+static void apply_binary_op(const ggml_compute_params * params, ggml_tensor * dst) {
+    const ggml_tensor * src0 = dst->src[0];
+    const ggml_tensor * src1 = dst->src[1];
 
     GGML_ASSERT(ggml_can_repeat(src1, src0) && ggml_are_same_shape(src0, dst));
 
@@ -90,9 +90,9 @@ static void apply_binary_op(const struct ggml_compute_params * params, struct gg
         const int64_t i12 = i02 % ne12;
         const int64_t i11 = i01 % ne11;
 
-        dst_t  * dst_ptr  = (dst_t  *) ((char *) dst->data  + i03*nb3  + i02*nb2  + i01*nb1 );
-        src0_t * src0_ptr = (src0_t *) ((char *) src0->data + i03*nb03 + i02*nb02 + i01*nb01);
-        src1_t * src1_ptr = (src1_t *) ((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11);
+        dst_t        * dst_ptr  = (dst_t  *)       ((char *)       dst->data  + i03*nb3  + i02*nb2  + i01*nb1 );
+        const src0_t * src0_ptr = (const src0_t *) ((const char *) src0->data + i03*nb03 + i02*nb02 + i01*nb01);
+        const src1_t * src1_ptr = (const src1_t *) ((const char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11);
 
         if (is_src1_contiguous) {
             // src1 is broadcastable across src0 and dst in i1, i2, i3
@@ -115,9 +115,9 @@ static void apply_binary_op(const struct ggml_compute_params * params, struct gg
 
 // TODO: Use the 'traits' lookup table (for type conversion fns), instead of a mass of 'if' conditions with long templates
 template <float (*op)(float, float)>
-static void binary_op(const struct ggml_compute_params * params, struct ggml_tensor * dst) {
-    const struct ggml_tensor * src0 = dst->src[0];
-    const struct ggml_tensor * src1 = dst->src[1];
+static void binary_op(const ggml_compute_params * params, ggml_tensor * dst) {
+    const ggml_tensor * src0 = dst->src[0];
+    const ggml_tensor * src1 = dst->src[1];
 
     /*  */ if (src0->type == GGML_TYPE_F32  && src1->type == GGML_TYPE_F32  && dst->type == GGML_TYPE_F32) { // all f32
         apply_binary_op<op, float, float, float>(params, dst);
@@ -140,18 +140,18 @@ static void binary_op(const struct ggml_compute_params * params, struct ggml_ten
     }
 }
 
-void ggml_compute_forward_add_non_quantized(const struct ggml_compute_params * params, struct ggml_tensor * dst) {
+void ggml_compute_forward_add_non_quantized(const ggml_compute_params * params, ggml_tensor * dst) {
     binary_op<op_add>(params, dst);
 }
 
-void ggml_compute_forward_sub(const struct ggml_compute_params * params, struct ggml_tensor * dst) {
+void ggml_compute_forward_sub(const ggml_compute_params * params, ggml_tensor * dst) {
     binary_op<op_sub>(params, dst);
 }
 
-void ggml_compute_forward_mul(const struct ggml_compute_params * params, struct ggml_tensor * dst) {
+void ggml_compute_forward_mul(const ggml_compute_params * params, ggml_tensor * dst) {
     binary_op<op_mul>(params, dst);
 }
 
-void ggml_compute_forward_div(const struct ggml_compute_params * params, struct ggml_tensor * dst) {
+void ggml_compute_forward_div(const ggml_compute_params * params, ggml_tensor * dst) {
     binary_op<op_div>(params, dst);
 }
