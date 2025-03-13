@@ -64,15 +64,17 @@ static inline float op_log(float x) {
     return logf(x);
 }
 
-// TODO: Use the 'traits' lookup table (for type conversion fns), instead of squeezing them into templates
-template <float (*op)(float), typename src0_t, float (*src0_to_f32)(src0_t), typename dst_t, dst_t (*f32_to_dst)(float)>
+template <float (*op)(float), typename src0_t, typename dst_t>
 static inline void vec_unary_op(int64_t n, dst_t * y, const src0_t * x) {
+    constexpr auto src0_to_f32 = type_conversion_table<src0_t>::to_f32;
+    constexpr auto f32_to_dst  = type_conversion_table<dst_t >::from_f32;
+
     for (int i = 0; i < n; i++) {
         y[i] = f32_to_dst(op(src0_to_f32(x[i])));
     }
 }
 
-template <float (*op)(float), typename src0_t, float (*src0_to_f32)(src0_t), typename dst_t, dst_t (*f32_to_dst)(float)>
+template <float (*op)(float), typename src0_t, typename dst_t>
 static void apply_unary_op(const struct ggml_compute_params * params, struct ggml_tensor * dst) {
     const struct ggml_tensor * src0 = dst->src[0];
 
@@ -93,7 +95,7 @@ static void apply_unary_op(const struct ggml_compute_params * params, struct ggm
         dst_t  * dst_ptr  = (dst_t  *) ((char *) dst->data  + i03*nb3  + i02*nb2  + i01*nb1 );
         src0_t * src0_ptr = (src0_t *) ((char *) src0->data + i03*nb03 + i02*nb02 + i01*nb01);
 
-        vec_unary_op<op, src0_t, src0_to_f32, dst_t, f32_to_dst>(ne0, dst_ptr, src0_ptr);
+        vec_unary_op<op>(ne0, dst_ptr, src0_ptr);
     }
 }
 
@@ -103,15 +105,15 @@ static void unary_op(const struct ggml_compute_params * params, struct ggml_tens
     const struct ggml_tensor * src0 = dst->src[0];
 
     /*  */ if (src0->type == GGML_TYPE_F32  && dst->type == GGML_TYPE_F32) { // all f32
-        apply_unary_op<op, F32_SRC, F32_DST>(params, dst);
+        apply_unary_op<op, float, float>(params, dst);
     } else if (src0->type == GGML_TYPE_F16  && dst->type == GGML_TYPE_F16) { // all f16
-        apply_unary_op<op, F16_SRC, F16_DST>(params, dst);
+        apply_unary_op<op, ggml_fp16_t, ggml_fp16_t>(params, dst);
     } else if (src0->type == GGML_TYPE_BF16 && dst->type == GGML_TYPE_BF16) { // all bf16
-        apply_unary_op<op, BF16_SRC, BF16_DST>(params, dst);
+        apply_unary_op<op, ggml_bf16_t, ggml_bf16_t>(params, dst);
     } else if (src0->type == GGML_TYPE_BF16 && dst->type == GGML_TYPE_F32) {
-        apply_unary_op<op, BF16_SRC, F32_DST>(params, dst);
+        apply_unary_op<op, ggml_bf16_t, float>(params, dst);
     } else if (src0->type == GGML_TYPE_F16  && dst->type == GGML_TYPE_F32) {
-        apply_unary_op<op, F16_SRC, F32_DST>(params, dst);
+        apply_unary_op<op, ggml_fp16_t, float>(params, dst);
     } else {
         fprintf(stderr, "%s: unsupported types: dst: %s, src0: %s\n", __func__,
             ggml_type_name(dst->type), ggml_type_name(src0->type));

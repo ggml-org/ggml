@@ -9,9 +9,6 @@
 
 #include <utility>
 
-extern "C" {
-#endif
-
 // convenience functions/macros for use in template calls
 // note: these won't be required after the 'traits' lookup table is used.
 static inline ggml_fp16_t f32_to_f16(float x) {
@@ -34,17 +31,27 @@ static inline float f32_to_f32(float x) {
     return x;
 }
 
-// data type, conversion function.
-#define F16_SRC     ggml_fp16_t,    f16_to_f32
-#define BF16_SRC    ggml_bf16_t,    bf16_to_f32
-#define F32_SRC     float,          f32_to_f32
+// TODO - merge this into the traits table, after using row-based conversions
+template <class T>
+struct type_conversion_table;
 
-#define F16_DST     ggml_fp16_t,    f32_to_f16
-#define BF16_DST    ggml_bf16_t,    f32_to_bf16
-#define F32_DST     float,          f32_to_f32
+template <>
+struct type_conversion_table<ggml_fp16_t> {
+    static constexpr float (*to_f32)(ggml_fp16_t) = f16_to_f32;
+    static constexpr ggml_fp16_t (*from_f32)(float) = f32_to_f16;
+};
 
-#ifdef __cplusplus
-}
+template <>
+struct type_conversion_table<float> {
+    static constexpr float (*to_f32)(float) = f32_to_f32;
+    static constexpr float (*from_f32)(float) = f32_to_f32;
+};
+
+template <>
+struct type_conversion_table<ggml_bf16_t> {
+    static constexpr float (*to_f32)(ggml_bf16_t) = bf16_to_f32;
+    static constexpr ggml_bf16_t (*from_f32)(float) = f32_to_bf16;
+};
 
 static std::pair<int64_t, int64_t> get_thread_range(const struct ggml_compute_params * params, const struct ggml_tensor * src0) {
     const int64_t ith = params->ith;
