@@ -34,6 +34,7 @@ cd $sd/../
 SRC=`pwd`
 
 CMAKE_EXTRA=""
+CTEST_EXTRA=""
 
 if [ ! -z ${GG_BUILD_CUDA} ]; then
     CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_CUDA=ON"
@@ -55,7 +56,7 @@ if [ ! -z ${GG_BUILD_SYCL} ]; then
     export ONEAPI_DEVICE_SELECTOR="level_zero:0"
     export ZES_ENABLE_SYSMAN=1
     # No plan to implement backward pass for now / disable test-opt
-    export GG_BUILD_LOW_PERF=1
+    CTEST_EXTRA="-E test-opt"
     CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_SYCL=1 -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx -DGGML_SYCL_F16=ON"
 fi
 
@@ -117,7 +118,7 @@ function gg_run_ctest_debug {
         export GGML_METAL_PATH_RESOURCES="$(pwd)/bin"
     fi
 
-    (time ctest --output-on-failure -E test-opt ) 2>&1 | tee -a $OUT/${ci}-ctest.log
+    (time ctest ${CTEST_EXTRA} --output-on-failure -E test-opt ) 2>&1 | tee -a $OUT/${ci}-ctest.log
 
     set +e
 }
@@ -150,9 +151,9 @@ function gg_run_ctest_release {
     fi
 
     if [ -z $GG_BUILD_LOW_PERF ]; then
-        (time ctest --output-on-failure ) 2>&1 | tee -a $OUT/${ci}-ctest.log
+        (time ctest ${CTEST_EXTRA} --output-on-failure ) 2>&1 | tee -a $OUT/${ci}-ctest.log
     else
-        (time ctest --output-on-failure -E test-opt ) 2>&1 | tee -a $OUT/${ci}-ctest.log
+        (time ctest ${CTEST_EXTRA} --output-on-failure -E test-opt ) 2>&1 | tee -a $OUT/${ci}-ctest.log
     fi
 
     set +e
