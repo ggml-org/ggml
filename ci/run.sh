@@ -54,6 +54,8 @@ if [ ! -z ${GG_BUILD_SYCL} ]; then
     fi
     export ONEAPI_DEVICE_SELECTOR="level_zero:0"
     export ZES_ENABLE_SYSMAN=1
+    # No plan to implement backward pass for now / disable test-opt
+    export GG_BUILD_LOW_PERF=1
     CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_SYCL=1 -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx -DGGML_SYCL_F16=ON"
 fi
 
