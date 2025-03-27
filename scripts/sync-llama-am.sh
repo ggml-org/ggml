@@ -69,6 +69,11 @@ while read c; do
     git format-patch -U${ctx} -k $c~1..$c --stdout -- \
         ggml/CMakeLists.txt \
         ggml/src/CMakeLists.txt \
+        ggml/cmake/BuildTypes.cmake \
+        ggml/cmake/GitVars.cmake \
+        ggml/cmake/common.cmake \
+        ggml/cmake/ggml-config.cmake.in \
+        ggml/src/ggml-cpu/cmake/FindSIMD.cmake \
         ggml/src/ggml*.h \
         ggml/src/ggml*.c \
         ggml/src/ggml*.cpp \
@@ -121,6 +126,12 @@ if [ -f $SRC_GGML/llama-src.patch ]; then
     # ggml/CMakelists.txt       -> CMakeLists.txt
     # ggml/src/CMakelists.txt   -> src/CMakeLists.txt
     #
+    # ggml/cmake/BuildTypes.cmake            -> cmake/BuildTypes.cmake
+    # ggml/cmake/GitVars.cmake               -> cmake/GitVars.cmake
+    # ggml/cmake/common.cmake                -> cmake/common.cmake
+    # ggml/cmake/ggml-config.cmake.in        -> cmake/ggml-config.cmake.in
+    # ggml/src/ggml-cpu/cmake/FindSIMD.cmake -> src/ggml-cpu/cmake/FindSIMD.cmake
+    #
     # ggml/src/ggml*.c          -> src/ggml*.c
     # ggml/src/ggml*.cpp        -> src/ggml*.cpp
     # ggml/src/ggml*.h          -> src/ggml*.h
@@ -152,6 +163,11 @@ if [ -f $SRC_GGML/llama-src.patch ]; then
     cat llama-src.patch | sed -E \
         -e 's/\/ggml\/CMakeLists\.txt/\/CMakeLists.txt/g' \
         -e 's/\/ggml\/src\/CMakeLists\.txt/\/src\/CMakeLists.txt/g' \
+        -e 's/\/ggml\/cmake\/BuildTypes\.cmake/\/cmake\/BuildTypes\.cmake/g' \
+        -e 's/\/ggml\/cmake\/GitVars\.cmake/\/cmake\/GitVars\.cmake/g' \
+        -e 's/\/ggml\/cmake\/common\.cmake/\/cmake\/common\.cmake/g' \
+        -e 's/\/ggml\/cmake\/ggml-config\.cmake\.in/\/cmake\/ggml-config\.cmake\.in/g' \
+        -e 's/\/ggml\/src\/ggml-cpu\/cmake\/FindSIMD\.cmake/\/src\/ggml-cpu\/cmake\/FindSIMD\.cmake/g' \
         -e 's/\/ggml\/src\/ggml(.*)\.c/\/src\/ggml\1.c/g' \
         -e 's/\/ggml\/src\/ggml(.*)\.cpp/\/src\/ggml\1.cpp/g' \
         -e 's/\/ggml\/src\/ggml(.*)\.h/\/src\/ggml\1.h/g' \

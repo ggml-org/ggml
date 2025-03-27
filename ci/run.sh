@@ -10,6 +10,9 @@
 # # with CUDA support
 # GG_BUILD_CUDA=1 bash ./ci/run.sh ./tmp/results ./tmp/mnt
 #
+# # With SYCL support
+# GG_BUILD_SYCL=1 bash ./ci/run.sh ./tmp/results ./tmp/mnt
+#
 
 if [ -z "$2" ]; then
     echo "usage: $0 <output-dir> <mnt-dir>"
@@ -31,6 +34,7 @@ cd $sd/../
 SRC=`pwd`
 
 CMAKE_EXTRA=""
+CTEST_EXTRA=""
 
 if [ ! -z ${GG_BUILD_CUDA} ]; then
     CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_CUDA=ON"
@@ -41,6 +45,19 @@ if [ ! -z ${GG_BUILD_METAL} ]; then
     #       the binaries cannot locate default.metallib eventhough it is in bin/. cannot figure out
     #       why this is happening, so temporary workaround is to use -DGGML_METAL_EMBED_LIBRARY=ON
     CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+fi
+
+if [ ! -z ${GG_BUILD_SYCL} ]; then
+    if [ -z ${ONEAPI_ROOT} ]; then
+        echo "Not detected ONEAPI_ROOT, please install oneAPI base toolkit and enable it by:"
+        echo "source /opt/intel/oneapi/setvars.sh"
+        exit 1
+    fi
+    export ONEAPI_DEVICE_SELECTOR="level_zero:0"
+    export ZES_ENABLE_SYSMAN=1
+    # No plan to implement backward pass for now / disable test-opt
+    CTEST_EXTRA="-E test-opt"
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_SYCL=1 -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx -DGGML_SYCL_F16=ON"
 fi
 
 ## helpers
@@ -101,7 +118,7 @@ function gg_run_ctest_debug {
         export GGML_METAL_PATH_RESOURCES="$(pwd)/bin"
     fi
 
-    (time ctest --output-on-failure -E test-opt ) 2>&1 | tee -a $OUT/${ci}-ctest.log
+    (time ctest ${CTEST_EXTRA} --output-on-failure -E test-opt ) 2>&1 | tee -a $OUT/${ci}-ctest.log
 
     set +e
 }
@@ -134,9 +151,9 @@ function gg_run_ctest_release {
     fi
 
     if [ -z $GG_BUILD_LOW_PERF ]; then
-        (time ctest --output-on-failure ) 2>&1 | tee -a $OUT/${ci}-ctest.log
+        (time ctest ${CTEST_EXTRA} --output-on-failure ) 2>&1 | tee -a $OUT/${ci}-ctest.log
     else
-        (time ctest --output-on-failure -E test-opt ) 2>&1 | tee -a $OUT/${ci}-ctest.log
+        (time ctest ${CTEST_EXTRA} --output-on-failure -E test-opt ) 2>&1 | tee -a $OUT/${ci}-ctest.log
     fi
 
     set +e
@@ -312,8 +329,9 @@ fi
 
 
 ret=0
-
-test $ret -eq 0 && gg_run ctest_debug
+if [ -z ${GG_BUILD_SYCL}]; then
+    test $ret -eq 0 && gg_run ctest_debug
+fi
 test $ret -eq 0 && gg_run ctest_release
 
 if [ ! -z ${GG_BUILD_METAL} ]; then
