@@ -146,7 +146,7 @@ inline static void ggml_vec_dot_f16_unroll(const int n, const int xs, float * GG
 #endif
 
     for (int i = 0; i < GGML_VEC_DOT_UNROLL; ++i) {
-        s[i] = sumf[i];
+        s[i] = (float)sumf[i];
     }
 }
 
@@ -744,7 +744,7 @@ inline static void ggml_vec_sum_f32(const int n, float * s, const float * x) {
     for (int i = 0; i < n; ++i) {
         sum += (ggml_float)x[i];
     }
-    *s = sum;
+    *s = (float)sum;
 #else
     vDSP_sve(x, 1, s, n);
 #endif
