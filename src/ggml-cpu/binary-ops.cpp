@@ -3,7 +3,7 @@
 #if defined(GGML_USE_ACCELERATE)
 #include <Accelerate/Accelerate.h>
 
-#define vDSP_fn_t(f) void (*f)(const float *, vDSP_Stride, const float *, vDSP_Stride, float *, vDSP_Stride, vDSP_Length)
+using vDSP_fn_t = void (*)(const float *, vDSP_Stride, const float *, vDSP_Stride, float *, vDSP_Stride, vDSP_Length);
 #endif
 
 static inline float op_add(float a, float b) {
@@ -66,7 +66,7 @@ static void apply_binary_op(const ggml_compute_params * params, ggml_tensor * ds
     }
 
 #ifdef GGML_USE_ACCELERATE
-    vDSP_fn_t(vDSP_op) = nullptr;
+    vDSP_fn_t vDSP_op = nullptr;
     // TODO - avoid the f32-only check using type 'trait' lookup tables and row-based src-to-float conversion functions
     if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
         if (op == op_add) {
@@ -100,9 +100,11 @@ static void apply_binary_op(const ggml_compute_params * params, ggml_tensor * ds
 
             for (int64_t r = 0; r < nr0; ++r) {
 #ifdef GGML_USE_ACCELERATE
-                if (vDSP_op != nullptr) {
-                    vDSP_op((float *)src1_ptr, 1, (float *)src0_ptr + r*ne10, 1, (float *)dst_ptr + r*ne10, 1, ne10);
-                    continue;
+                if constexpr (std::is_same_v<src0_t, float> && std::is_same_v<src1_t, float> && std::is_same_v<dst_t, float>) {
+                    if (vDSP_op != nullptr) {
+                        vDSP_op(src1_ptr, 1, src0_ptr + r*ne10, 1, dst_ptr + r*ne10, 1, ne10);
+                        continue;
+                    }
                 }
 #endif
                 vec_binary_op_contiguous<op>(ne10, dst_ptr + r*ne10, src0_ptr + r*ne10, src1_ptr);
@@ -134,9 +136,8 @@ static void binary_op(const ggml_compute_params * params, ggml_tensor * dst) {
     } else if (src0->type == GGML_TYPE_F16  && src1->type == GGML_TYPE_F32  && dst->type == GGML_TYPE_F32) {
         apply_binary_op<op, ggml_fp16_t, float, float>(params, dst);
     } else {
-        fprintf(stderr, "%s: unsupported types: dst: %s, src0: %s, src1: %s\n", __func__,
+        GGML_ABORT("%s: unsupported types: dst: %s, src0: %s, src1: %s\n", __func__,
             ggml_type_name(dst->type), ggml_type_name(src0->type), ggml_type_name(src1->type));
-        GGML_ABORT("fatal error");
     }
 }
 
