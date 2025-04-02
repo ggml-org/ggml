@@ -11,8 +11,8 @@
 #include "ggml-threading.h"
 #include "unary-ops.h"
 #include "binary-ops.h"
-#include "ops.h"
 #include "vec.h"
+#include "ops.h"
 #include "ggml.h"
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
