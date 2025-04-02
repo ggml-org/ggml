@@ -82,6 +82,7 @@
 #endif
 #endif // __has_feature
 
+#define UNUSED GGML_UNUSED
 #define SWAP(x, y, T) do { T SWAP = x; (x) = y; (y) = SWAP; } while (0)
 
 #if defined(__ARM_ARCH)

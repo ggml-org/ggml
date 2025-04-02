@@ -6,10 +6,6 @@
 #include "simd-mappings.h"
 #include "ggml.h"
 
-#include <assert.h>
-
-#define UNUSED GGML_UNUSED
-
 #if defined(GGML_USE_ACCELERATE)
 #include <Accelerate/Accelerate.h>
 #endif

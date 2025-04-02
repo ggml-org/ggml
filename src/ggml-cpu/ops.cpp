@@ -1373,7 +1373,7 @@ static void ggml_compute_forward_add1_f32(
         const int i1 = (ir - i3*ne2*ne1 - i2*ne1);
 
 #ifdef GGML_USE_ACCELERATE
-        UNUSED(ggml_vec_add1_f32);
+        GGML_UNUSED(ggml_vec_add1_f32);
 
         vDSP_vadd(
                 (float *) ((char *) src0->data + i3*nb03 + i2*nb02 + i1*nb01), 1,
@@ -2038,10 +2038,10 @@ static void ggml_compute_forward_mean_f32(
     assert(ne2 == ne02);
     assert(ne3 == ne03);
 
-    UNUSED(ne0);
-    UNUSED(ne1);
-    UNUSED(ne2);
-    UNUSED(ne3);
+    GGML_UNUSED(ne0);
+    GGML_UNUSED(ne1);
+    GGML_UNUSED(ne2);
+    GGML_UNUSED(ne3);
 
     for (int64_t i03 = 0; i03 < ne03; i03++) {
         for (int64_t i02 = 0; i02 < ne02; i02++) {
@@ -2634,7 +2634,7 @@ static void ggml_compute_forward_gelu_f32(
 #ifndef NDEBUG
         for (int k = 0; k < nc; k++) {
             const float x = ((float *) ((char *) dst->data + i1*( dst->nb[1])))[k];
-            UNUSED(x);
+            GGML_UNUSED(x);
             assert(!isnan(x));
             assert(!isinf(x));
         }
@@ -2674,7 +2674,7 @@ static void ggml_compute_forward_gelu_f16(
         for (int k = 0; k < nc; k++) {
             const ggml_fp16_t x = ((ggml_fp16_t *) ((char *) dst->data + i1*( dst->nb[1])))[k];
             const float v = GGML_FP16_TO_FP32(x);
-            UNUSED(v);
+            GGML_UNUSED(v);
             assert(!isnan(v));
             assert(!isinf(v));
         }
@@ -2737,7 +2737,7 @@ static void ggml_compute_forward_gelu_quick_f32(
 #ifndef NDEBUG
         for (int k = 0; k < nc; k++) {
             const float x = ((float *) ((char *) dst->data + i1*( dst->nb[1])))[k];
-            UNUSED(x);
+            GGML_UNUSED(x);
             assert(!isnan(x));
             assert(!isinf(x));
         }
@@ -2777,7 +2777,7 @@ static void ggml_compute_forward_gelu_quick_f16(
         for (int k = 0; k < nc; k++) {
             const ggml_fp16_t x = ((ggml_fp16_t *) ((char *) dst->data + i1*( dst->nb[1])))[k];
             const float v = GGML_FP16_TO_FP32(x);
-            UNUSED(v);
+            GGML_UNUSED(v);
             assert(!isnan(v));
             assert(!isinf(v));
         }
@@ -2840,7 +2840,7 @@ static void ggml_compute_forward_silu_f32(
 #ifndef NDEBUG
         for (int k = 0; k < nc; k++) {
             const float x = ((float *) ((char *) dst->data + i1*(dst->nb[1])))[k];
-            UNUSED(x);
+            GGML_UNUSED(x);
             assert(!isnan(x));
             assert(!isinf(x));
         }
@@ -2880,7 +2880,7 @@ static void ggml_compute_forward_silu_f16(
         for (int k = 0; k < nc; k++) {
             const ggml_fp16_t x = ((ggml_fp16_t *) ((char *) dst->data + i1*(dst->nb[1])))[k];
             const float v = GGML_FP16_TO_FP32(x);
-            UNUSED(v);
+            GGML_UNUSED(v);
             assert(!isnan(v));
             assert(!isinf(v));
         }
@@ -3030,7 +3030,7 @@ static void ggml_compute_forward_silu_back_f32(
 #ifndef NDEBUG
         for (int k = 0; k < nc; k++) {
             const float x = ((float *) ((char *) dst->data + i1*( dst->nb[1])))[k];
-            UNUSED(x);
+            GGML_UNUSED(x);
             assert(!isnan(x));
             assert(!isinf(x));
         }
@@ -3074,7 +3074,7 @@ static void ggml_compute_forward_silu_back_f16(
         for (int k = 0; k < nc; k++) {
             const float x = ((ggml_fp16_t *) ((char *) dst->data + i1*( dst->nb[1])))[k];
             const float v = GGML_FP16_TO_FP32(x);
-            UNUSED(v);
+            GGML_UNUSED(v);
             assert(!isnan(v));
             assert(!isinf(v));
         }
@@ -4107,8 +4107,8 @@ void ggml_compute_forward_reshape(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
     // NOP
-    UNUSED(params);
-    UNUSED(dst);
+    GGML_UNUSED(params);
+    GGML_UNUSED(dst);
 }
 
 // ggml_compute_forward_view
@@ -4117,8 +4117,8 @@ void ggml_compute_forward_view(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
     // NOP
-    UNUSED(params);
-    UNUSED(dst);
+    GGML_UNUSED(params);
+    GGML_UNUSED(dst);
 }
 
 // ggml_compute_forward_permute
@@ -4127,8 +4127,8 @@ void ggml_compute_forward_permute(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
     // NOP
-    UNUSED(params);
-    UNUSED(dst);
+    GGML_UNUSED(params);
+    GGML_UNUSED(dst);
 }
 
 // ggml_compute_forward_transpose
@@ -4137,8 +4137,8 @@ void ggml_compute_forward_transpose(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
     // NOP
-    UNUSED(params);
-    UNUSED(dst);
+    GGML_UNUSED(params);
+    GGML_UNUSED(dst);
 }
 
 // ggml_compute_forward_get_rows
@@ -7374,7 +7374,7 @@ void ggml_compute_forward_ssm_scan(
 static void ggml_compute_forward_win_part_f32(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
-    UNUSED(params);
+    GGML_UNUSED(params);
 
     const ggml_tensor * src0 = dst->src[0];
 
@@ -7437,7 +7437,7 @@ void ggml_compute_forward_win_part(
 static void ggml_compute_forward_win_unpart_f32(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
-    UNUSED(params);
+    GGML_UNUSED(params);
 
     const ggml_tensor * src0 = dst->src[0];
 
@@ -7570,7 +7570,7 @@ void ggml_compute_forward_unary(
 static void ggml_compute_forward_get_rel_pos_f16(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
-    UNUSED(params);
+    GGML_UNUSED(params);
 
     const ggml_tensor * src0 = dst->src[0];
 
