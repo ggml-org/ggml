@@ -496,9 +496,7 @@ GGML_API float ggml_table_f32_f16[1 << 16];
 // This is also true for POWER9.
 #if !defined(GGML_FP16_TO_FP32)
 inline static float ggml_lookup_fp16_to_fp32(ggml_fp16_t f) {
-    uint16_t s;
-    memcpy(&s, &f, sizeof(uint16_t));
-    return ggml_table_f32_f16[s];
+    return ggml_table_f32_f16[f];
 }
 
 #define GGML_FP16_TO_FP32(x) ggml_lookup_fp16_to_fp32(x)
