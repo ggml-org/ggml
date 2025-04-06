@@ -697,6 +697,18 @@ inline static __m128 ggml_v_expf(__m128 x) {
                                 _mm_andnot_ps(_mm_castsi128_ps(c), MADD128(k, j, k)))));
 }
 
+// computes silu x/(1+exp(-x)) in single precision vector
+inline static __m128 ggml_v_silu(__m128 x) {
+    const __m128 one = _mm_set1_ps(1);
+    const __m128 zero = _mm_setzero_ps();
+    const __m128 neg_x = _mm_sub_ps(zero, x);
+    const __m128 exp_neg_x = ggml_v_expf(neg_x);
+    const __m128 one_plus_exp_neg_x = _mm_add_ps(one, exp_neg_x);
+    return _mm_div_ps(x, one_plus_exp_neg_x);
+}
+
+#endif // __ARM_NEON / __AVX2__ / __SSE2__
+
 inline static void ggml_vec_gelu_f16(const int n, ggml_fp16_t * y, const ggml_fp16_t * x) {
     const uint16_t * i16 = (const uint16_t *) x;
     for (int i = 0; i < n; ++i) {
@@ -761,18 +773,6 @@ inline static void ggml_vec_gelu_f32(const int n, float * y, const float * x) {
     }
 #endif
 }
-
-// computes silu x/(1+exp(-x)) in single precision vector
-inline static __m128 ggml_v_silu(__m128 x) {
-    const __m128 one = _mm_set1_ps(1);
-    const __m128 zero = _mm_setzero_ps();
-    const __m128 neg_x = _mm_sub_ps(zero, x);
-    const __m128 exp_neg_x = ggml_v_expf(neg_x);
-    const __m128 one_plus_exp_neg_x = _mm_add_ps(one, exp_neg_x);
-    return _mm_div_ps(x, one_plus_exp_neg_x);
-}
-
-#endif // __ARM_NEON / __AVX2__ / __SSE2__
 
 inline static void ggml_vec_silu_f16(const int n, ggml_fp16_t * y, const ggml_fp16_t * x) {
     for (int i = 0; i < n; ++i) {
