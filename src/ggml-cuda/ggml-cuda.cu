@@ -1943,10 +1943,11 @@ struct mmid_row_mapping {
 };
 
 // MIT licensed. Copyright (C) 2025 Iwan Kawrakow
+// https://github.com/ikawrakow/ik_llama.cpp/pull/283
 static __global__ void k_copy_src_to_contiguous(const char * __restrict__ src_original, char * __restrict__ src_contiguous,
                                                   const mmid_row_mapping * __restrict__ row_mapping,
                                                   int64_t ne10, int64_t ne11, size_t nb11, size_t nb12) {
-    int32_t i = blockIdx.x;
+    const int32_t i = blockIdx.x;
 
     const int32_t i11 = row_mapping[i].i1 % ne11;
     const int32_t i12 = row_mapping[i].i2;
@@ -1977,6 +1978,7 @@ static __global__ void k_copy_dst_from_contiguous(char * __restrict__ dst_origin
 }
 
 // MIT licensed. Copyright (C) 2025 Iwan Kawrakow
+// https://github.com/ikawrakow/ik_llama.cpp/pull/283
 static inline void prepare_row_mappings(ggml_backend_cuda_context& ctx, int64_t n_as, int64_t n_ids,
                                         const ggml_tensor * ids, std::vector<int>& moe_counts, std::vector<int>& cum_moe_counts,
                                         ggml_cuda_pool_alloc<mmid_row_mapping>& dev_row_mapping) {
@@ -1986,6 +1988,7 @@ static inline void prepare_row_mappings(ggml_backend_cuda_context& ctx, int64_t 
     auto stream = ctx.stream();
 
     std::vector<char> ids_host(ggml_nbytes(ids));
+    GGML_ASSERT(ggml_is_contiguous(ids));
     const char * ids_dev = (const char *) ids->data;
     CUDA_CHECK(cudaMemcpyAsync(ids_host.data(), ids_dev, ggml_nbytes(ids), cudaMemcpyDeviceToHost, stream));
     CUDA_CHECK(cudaStreamSynchronize(stream));
@@ -2001,7 +2004,7 @@ static inline void prepare_row_mappings(ggml_backend_cuda_context& ctx, int64_t 
         }
     }
     cum_moe_counts[0] = 0;
-    for (int i = 0; i < (int)n_as; ++i) {
+    for (int64_t i = 0; i < n_as; ++i) {
         cum_moe_counts[i+1] = cum_moe_counts[i] + moe_counts[i];
     }
 
@@ -2016,7 +2019,7 @@ static inline void prepare_row_mappings(ggml_backend_cuda_context& ctx, int64_t 
         }
     }
 
-    for (int i = 0; i < (int)n_as; ++i) cum_moe_counts[i] -= moe_counts[i];
+    for (int64_t i = 0; i < n_as; ++i) cum_moe_counts[i] -= moe_counts[i];
 
     CUDA_CHECK(cudaMemcpyAsync(dev_row_mapping.get(), rmapping.data(), cum_moe_counts[n_as]*sizeof(mmid_row_mapping), cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaStreamSynchronize(stream));
@@ -2062,6 +2065,7 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
 
     if (ne12 == 1) {
         std::vector<char> ids_host(ggml_nbytes(ids));
+        GGML_ASSERT(ggml_is_contiguous(ids));
         const char * ids_dev = (const char *) ids->data;
         CUDA_CHECK(cudaMemcpyAsync(ids_host.data(), ids_dev, ggml_nbytes(ids), cudaMemcpyDeviceToHost, stream));
         CUDA_CHECK(cudaStreamSynchronize(stream));
@@ -2096,14 +2100,13 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
         dst_row.data  =  dst_contiguous.get();
 
         for (int64_t i02 = 0; i02 < n_as; i02++) {
-
-            int64_t num_src1_rows = moe_counts[i02];
+            const int64_t num_src1_rows = moe_counts[i02];
 
             if (num_src1_rows == 0) {
                 continue;
             }
 
-            size_t mapping_offset = cum_moe_counts[i02];
+            const size_t mapping_offset = cum_moe_counts[i02];
 
             {
                 dim3 block_dims(std::min((unsigned int)ne10, 768u));
