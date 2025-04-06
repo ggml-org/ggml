@@ -1988,7 +1988,6 @@ static inline void prepare_row_mappings(ggml_backend_cuda_context& ctx, int64_t 
     auto stream = ctx.stream();
 
     std::vector<char> ids_host(ggml_nbytes(ids));
-    GGML_ASSERT(ggml_is_contiguous(ids));
     const char * ids_dev = (const char *) ids->data;
     CUDA_CHECK(cudaMemcpyAsync(ids_host.data(), ids_dev, ggml_nbytes(ids), cudaMemcpyDeviceToHost, stream));
     CUDA_CHECK(cudaStreamSynchronize(stream));
@@ -2065,7 +2064,6 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
 
     if (ne12 == 1) {
         std::vector<char> ids_host(ggml_nbytes(ids));
-        GGML_ASSERT(ggml_is_contiguous(ids));
         const char * ids_dev = (const char *) ids->data;
         CUDA_CHECK(cudaMemcpyAsync(ids_host.data(), ids_dev, ggml_nbytes(ids), cudaMemcpyDeviceToHost, stream));
         CUDA_CHECK(cudaStreamSynchronize(stream));
