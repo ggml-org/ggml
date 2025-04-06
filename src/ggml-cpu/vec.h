@@ -512,6 +512,7 @@ inline static float32x4_t ggml_v_expf(float32x4_t x) {
 }
 
 // Slower than lookup on my M2-Max
+// MIT licensed. Copyright (C) 2024 Iwan Kawrakow
 inline static float32x4_t ggml_v_gelu(float32x4_t x, float32x4_t c1, float32x4_t c2) {
     const float32x4_t one = vdupq_n_f32(1.0f);
     float32x4_t arg = vfmaq_f32(one, c1, vmulq_f32(x, x));
@@ -565,6 +566,7 @@ inline static __m512 ggml_v_expf(__m512 x) {
   return _mm512_mask_blend_ps(d, res, alt);
 }
 
+// MIT licensed. Copyright (C) 2024 Iwan Kawrakow
 inline static __m512 ggml_v_gelu(__m512 x, __m512 c1, __m512 c2) {
     const __m512 one = _mm512_set1_ps(1.0f);
     __m512 arg = _mm512_fmadd_ps(x, _mm512_mul_ps(c1, x), one);
@@ -630,6 +632,7 @@ inline static __m256 ggml_v_expf(__m256 x) {
               _mm256_andnot_ps(_mm256_castsi256_ps(c), _mm256_fmadd_ps(k, j, k)))));
 }
 
+// MIT licensed. Copyright (C) 2024 Iwan Kawrakow
 inline static __m256 ggml_v_gelu(__m256 x, __m256 c1, __m256 c2) {
     const __m256 one = _mm256_set1_ps(1.0f);
     const __m256 mask = _mm256_cmp_ps(x, _mm256_set1_ps(10.f), _CMP_GT_OQ);
@@ -716,6 +719,7 @@ inline static void ggml_vec_gelu_f16(const int n, ggml_fp16_t * y, const ggml_fp
 // ggml_v_gelu SIMD implementations we override the gelu result with the
 // input argument when the argument is greater than 10, so it is all good.
 //
+// MIT licensed. Copyright (C) 2024 Iwan Kawrakow
 inline static void ggml_vec_gelu_f32(const int n, float * y, const float * x) {
     int i = 0;
 #if defined(__AVX512F__) && defined(__AVX512DQ__)
