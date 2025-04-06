@@ -1942,6 +1942,7 @@ struct mmid_row_mapping {
     int32_t i2;
 };
 
+// MIT licensed. Copyright (C) 2024 Iwan Kawrakow
 static __global__ void k_copy_src_to_contiguous(const char * __restrict__ src_original, char * __restrict__ src_contiguous,
                                                   const mmid_row_mapping * __restrict__ row_mapping,
                                                   int64_t ne10, int64_t ne11, size_t nb11, size_t nb12) {
@@ -1975,9 +1976,10 @@ static __global__ void k_copy_dst_from_contiguous(char * __restrict__ dst_origin
     }
 }
 
+// MIT licensed. Copyright (C) 2024 Iwan Kawrakow
 static inline void prepare_row_mappings(ggml_backend_cuda_context& ctx, int64_t n_as, int64_t n_ids,
-                                       const ggml_tensor * ids, std::vector<int>& moe_counts, std::vector<int>& cum_moe_counts,
-                                       ggml_cuda_pool_alloc<mmid_row_mapping>& dev_row_mapping) {
+                                        const ggml_tensor * ids, std::vector<int>& moe_counts, std::vector<int>& cum_moe_counts,
+                                        ggml_cuda_pool_alloc<mmid_row_mapping>& dev_row_mapping) {
 
     GGML_ASSERT(moe_counts.empty() && cum_moe_counts.empty());
 
