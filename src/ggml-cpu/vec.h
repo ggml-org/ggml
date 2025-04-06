@@ -433,36 +433,6 @@ inline static float ggml_gelu_f32(float x) {
     return 0.5f*x*(1.0f + tanhf(SQRT_2_OVER_PI*x*(1.0f + GELU_COEF_A*x*x)));
 }
 
-inline static void ggml_vec_gelu_f16(const int n, ggml_fp16_t * y, const ggml_fp16_t * x) {
-    const uint16_t * i16 = (const uint16_t *) x;
-    for (int i = 0; i < n; ++i) {
-        y[i] = ggml_table_gelu_f16[i16[i]];
-    }
-}
-
-#ifdef GGML_GELU_FP16
-inline static void ggml_vec_gelu_f32(const int n, float * y, const float * x) {
-    uint16_t t;
-    for (int i = 0; i < n; ++i) {
-        if (x[i] <= -10.0f) {
-            y[i] = 0.0f;
-        } else if (x[i] >= 10.0f) {
-            y[i] = x[i];
-        } else {
-            ggml_fp16_t fp16 = GGML_FP32_TO_FP16(x[i]);
-            memcpy(&t, &fp16, sizeof(uint16_t));
-            y[i] = GGML_FP16_TO_FP32(ggml_table_gelu_f16[t]);
-        }
-    }
-}
-#else
-inline static void ggml_vec_gelu_f32(const int n, float * y, const float * x) {
-    for (int i = 0; i < n; ++i) {
-        y[i] = ggml_gelu_f32(x[i]);
-    }
-}
-#endif
-
 inline static float ggml_gelu_quick_f32(float x) {
     return x*(1.0f/(1.0f+expf(GELU_QUICK_COEF*x)));
 }
@@ -541,6 +511,17 @@ inline static float32x4_t ggml_v_expf(float32x4_t x) {
                      vbslq_f32(c, vmulq_f32(vfmaq_f32(s2, s2, j), s1), vfmaq_f32(k, k, j)));
 }
 
+// Slower than lookup on my M2-Max
+inline static float32x4_t ggml_v_gelu(float32x4_t x, float32x4_t c1, float32x4_t c2) {
+    const float32x4_t one = vdupq_n_f32(1.0f);
+    float32x4_t arg = vfmaq_f32(one, c1, vmulq_f32(x, x));
+    arg = vmulq_f32(arg, vmulq_f32(x, c2));
+    float32x4_t exp_arg = ggml_v_expf(arg);
+    float32x4_t gelu = vmulq_f32(x, vdivq_f32(exp_arg, vaddq_f32(exp_arg, one)));
+    uint32x4_t mask = vcgtq_f32(x, vdupq_n_f32(10.f));
+    return vbslq_f32(mask, x, gelu);
+}
+
 // computes silu x/(1+exp(-x)) in single precision vector
 inline static float32x4_t ggml_v_silu(float32x4_t x) {
     const float32x4_t one = vdupq_n_f32(1.0f);
@@ -582,6 +563,16 @@ inline static __m512 ggml_v_expf(__m512 x) {
   const __m512 alt = _mm512_mask_blend_ps(
       _mm512_cmp_ps_mask(n, zero, _CMP_LE_OQ), _mm512_set1_ps(INFINITY), zero);
   return _mm512_mask_blend_ps(d, res, alt);
+}
+
+inline static __m512 ggml_v_gelu(__m512 x, __m512 c1, __m512 c2) {
+    const __m512 one = _mm512_set1_ps(1.0f);
+    __m512 arg = _mm512_fmadd_ps(x, _mm512_mul_ps(c1, x), one);
+    arg = _mm512_mul_ps(arg, _mm512_mul_ps(c2, x));
+    const __mmask16 mask = _mm512_cmp_ps_mask(arg, _mm512_set1_ps(30.f), _CMP_GT_OQ);
+    const __m512 exp_arg = ggml_v_expf(arg);
+    const __m512 ratio = _mm512_div_ps(exp_arg, _mm512_add_ps(exp_arg, one));
+    return _mm512_mul_ps(x, _mm512_mask_blend_ps(mask, ratio, one));
 }
 
 // computes silu x/(1+exp(-x)) in single precision vector
@@ -639,6 +630,16 @@ inline static __m256 ggml_v_expf(__m256 x) {
               _mm256_andnot_ps(_mm256_castsi256_ps(c), _mm256_fmadd_ps(k, j, k)))));
 }
 
+inline static __m256 ggml_v_gelu(__m256 x, __m256 c1, __m256 c2) {
+    const __m256 one = _mm256_set1_ps(1.0f);
+    const __m256 mask = _mm256_cmp_ps(x, _mm256_set1_ps(10.f), _CMP_GT_OQ);
+    __m256 arg = _mm256_add_ps(one, _mm256_mul_ps(_mm256_mul_ps(x, x), c1));
+    arg = _mm256_mul_ps(arg, _mm256_mul_ps(x, c2));
+    __m256 exp_arg = ggml_v_expf(arg);
+    __m256 gelu = _mm256_mul_ps(x, _mm256_div_ps(exp_arg, _mm256_add_ps(exp_arg, one)));
+    return _mm256_or_ps(_mm256_and_ps(mask, x), _mm256_andnot_ps(mask, gelu));
+}
+
 // computes silu x/(1+exp(-x)) in single precision vector
 inline static __m256 ggml_v_silu(__m256 x) {
     const __m256 one = _mm256_set1_ps(1);
@@ -691,6 +692,70 @@ inline static __m128 ggml_v_expf(__m128 x) {
         _mm_andnot_ps(_mm_castsi128_ps(d),
                       _mm_or_ps(_mm_and_ps(_mm_castsi128_ps(c), _mm_mul_ps(MADD128(s2, j, s2), s1)),
                                 _mm_andnot_ps(_mm_castsi128_ps(c), MADD128(k, j, k)))));
+}
+
+inline static void ggml_vec_gelu_f16(const int n, ggml_fp16_t * y, const ggml_fp16_t * x) {
+    const uint16_t * i16 = (const uint16_t *) x;
+    for (int i = 0; i < n; ++i) {
+        y[i] = ggml_table_gelu_f16[i16[i]];
+    }
+}
+
+//
+// On my AVX512 (Ryzen-7950X) and AVX2 (Ryzen-5975WX) computing gelu directly
+// via SIMD instructions is faster than the fp16-based lookup table.
+// On my M2-Max CPU the lookup table is slightly faster than the SIMD version,
+// hence we use the SIMD version only if GGML_GELU_FP16 is not defined.
+// We do not run into numerical issues for large or small arguments because
+//    0.5f * (1 + tanhf(arg))
+// is computed as
+//    exp(2*arg)/(exp(2*arg) + 1)
+// The ggml_v_expf functions flushes to zero for large enough negative
+// arguments, so the above becomes zero. ggml_v_expf returns INFINITY
+// for large positive arguments, so we would get a NaN if we did nothing. But in the
+// ggml_v_gelu SIMD implementations we override the gelu result with the
+// input argument when the argument is greater than 10, so it is all good.
+//
+inline static void ggml_vec_gelu_f32(const int n, float * y, const float * x) {
+    int i = 0;
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+    __m512 c1 = _mm512_set1_ps(GELU_COEF_A);
+    __m512 c2 = _mm512_set1_ps(2.f*SQRT_2_OVER_PI);
+    for (; i + 15 < n; i += 16) {
+        _mm512_storeu_ps(y + i, ggml_v_gelu(_mm512_loadu_ps(x + i), c1, c2));
+    }
+#elif defined __AVX2__ && defined __FMA__
+    __m256 c1 = _mm256_set1_ps(GELU_COEF_A);
+    __m256 c2 = _mm256_set1_ps(2.f*SQRT_2_OVER_PI);
+    for (; i + 7 < n; i += 8) {
+        _mm256_storeu_ps(y + i, ggml_v_gelu(_mm256_loadu_ps(x + i), c1, c2));
+    }
+#endif
+#ifdef GGML_GELU_FP16
+    uint16_t t;
+    for (; i < n; ++i) {
+        if (x[i] <= -10.0f) {
+            y[i] = 0.0f;
+        } else if (x[i] >= 10.0f) {
+            y[i] = x[i];
+        } else {
+            ggml_fp16_t fp16 = GGML_FP32_TO_FP16(x[i]);
+            memcpy(&t, &fp16, sizeof(uint16_t));
+            y[i] = GGML_FP16_TO_FP32(ggml_table_gelu_f16[t]);
+        }
+    }
+#else
+#if defined __ARM_NEON
+    float32x4_t c1 = vdupq_n_f32(GELU_COEF_A);
+    float32x4_t c2 = vdupq_n_f32(2.f*SQRT_2_OVER_PI);
+    for (; i + 3 < n; i += 4) {
+        vst1q_f32(y + i, ggml_v_gelu(vld1q_f32(x + i), c1, c2));
+    }
+#endif
+    for (; i < n; ++i) {
+        y[i] = ggml_gelu_f32(x[i]);
+    }
+#endif
 }
 
 // computes silu x/(1+exp(-x)) in single precision vector
