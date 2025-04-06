@@ -1196,6 +1196,7 @@ static void ggml_cuda_op_mul_mat_cublas(
 
     if (src0->type == GGML_TYPE_BF16 && ggml_is_contiguous(src0) && row_diff == src0->ne[1]) {
         // MIT licensed. Copyright (C) 2024 Iwan Kawrakow
+        // https://github.com/ikawrakow/ik_llama.cpp/pull/40
         ggml_cuda_pool_alloc<nv_bfloat16> src1_as_bf16(ctx.pool(id));
         if (src1->type != GGML_TYPE_BF16) {
             const to_bf16_cuda_t to_bf16_cuda = ggml_get_to_bf16_cuda(src1->type);
