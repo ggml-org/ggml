@@ -2077,6 +2077,11 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
                 ggml_compute_forward_map_custom3(params, tensor);
             }
             break;
+        case GGML_OP_CUSTOM:
+            {
+                ggml_compute_forward_custom(params, tensor);
+            }
+            break;
         case GGML_OP_CROSS_ENTROPY_LOSS:
             {
                 ggml_compute_forward_cross_entropy_loss(params, tensor);
@@ -2359,6 +2364,16 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_MAP_CUSTOM3:
             {
                 struct ggml_map_custom3_op_params p;
+                memcpy(&p, node->op_params, sizeof(p));
+                if (p.n_tasks == GGML_N_TASKS_MAX) {
+                    n_tasks = n_threads;
+                } else {
+                    n_tasks = MIN(p.n_tasks, n_threads);
+                }
+            } break;
+        case GGML_OP_CUSTOM:
+            {
+                struct ggml_custom_op_params p;
                 memcpy(&p, node->op_params, sizeof(p));
                 if (p.n_tasks == GGML_N_TASKS_MAX) {
                     n_tasks = n_threads;

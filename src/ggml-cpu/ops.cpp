@@ -8455,6 +8455,18 @@ void ggml_compute_forward_map_custom3(
     p.fun(dst, a, b, c, params->ith, params->nth, p.userdata);
 }
 
+// ggml_compute_forward_custom
+
+void ggml_compute_forward_custom(
+    const struct ggml_compute_params * params,
+          struct ggml_tensor * dst) {
+
+    struct ggml_custom_op_params p;
+    memcpy(&p, dst->op_params, sizeof(p));
+
+    p.fun(dst, params->ith, params->nth, p.userdata);
+}
+
 // ggml_compute_forward_cross_entropy_loss
 
 static void ggml_compute_forward_cross_entropy_loss_f32(

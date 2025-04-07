@@ -518,6 +518,8 @@ extern "C" {
         GGML_OP_MAP_CUSTOM2,
         GGML_OP_MAP_CUSTOM3,
 
+        GGML_OP_CUSTOM,
+
         GGML_OP_CROSS_ENTROPY_LOSS,
         GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         GGML_OP_OPT_STEP_ADAMW,
@@ -2047,6 +2049,30 @@ extern "C" {
             ggml_custom3_op_t       fun,
             int                     n_tasks,
             void                  * userdata);
+
+    typedef void (*ggml_custom_op_t)(struct ggml_tensor * dst , int ith, int nth, void * userdata);
+
+    GGML_API struct ggml_tensor * ggml_custom(
+            struct ggml_context * ctx,
+            enum ggml_type        type,
+            int64_t               ne0,
+            int64_t               ne1,
+            int64_t               ne2,
+            int64_t               ne3,
+            struct ggml_tensor ** args,
+            int                   n_args,
+            ggml_custom_op_t      fun,
+            int                   n_tasks,
+            void                * userdata);
+
+    GGML_API struct ggml_tensor * ggml_custom_inplace(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor ** args,
+            int                   n_args,
+            ggml_custom_op_t      fun,
+            int                   n_tasks,
+            void                * userdata);
 
     // loss function
 
