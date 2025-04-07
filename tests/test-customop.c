@@ -134,7 +134,7 @@ void custom(struct ggml_tensor * dst, int ith, int nth, void * userdata) {
     struct ggml_tensor * src3 = dst->src[3];
     struct ggml_tensor * src4 = dst->src[4];
 
-    float * dst_data = ggml_get_data_f32(dst);
+    int32_t * dst_data = (int32_t *) ggml_get_data(dst);
     const float * src0_data = ggml_get_data_f32(src0);
     const float * src1_data = ggml_get_data_f32(src1);
     const float * src2_data = ggml_get_data_f32(src2);
@@ -287,7 +287,7 @@ int main(int argc, const char** argv) {
 
         ggml_graph_compute_with_ctx(ctx, graph, 4);
 
-        const float * output = ggml_get_data_f32(m4);
+        const int32_t * output = (const int32_t *) ggml_get_data(m4);
 
         for (int i = 0; i < ggml_nelements(m4); ++i) {
             GGML_ASSERT(output[i] == buf1_f32[i] + buf2_f32[i] * buf3_f32[i] - buf1_f32[i] * buf2_f32[i]);
