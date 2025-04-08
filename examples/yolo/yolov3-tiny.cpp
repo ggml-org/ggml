@@ -463,7 +463,7 @@ static struct ggml_cgraph * build_graph(struct ggml_context * ctx_cgraph, const 
     print_shape(15, result);
     result = apply_conv2d(ctx_cgraph, layer_13, model.conv2d_layers[10]);
     print_shape(18, result);
-    result = ggml_upscale(ctx_cgraph, result, 2);
+    result = ggml_upscale(ctx_cgraph, result, 2, GGML_SCALE_MODE_NEAREST);
     print_shape(19, result);
     result = ggml_concat(ctx_cgraph, result, layer_8, 2);
     print_shape(20, result);
