@@ -4970,7 +4970,7 @@ struct ggml_tensor * ggml_map_custom3_inplace(
     return ggml_map_custom3_impl(ctx, a, b, c, fun, n_tasks, userdata, true);
 }
 
-struct ggml_tensor * ggml_custom(
+struct ggml_tensor * ggml_custom_4d(
         struct ggml_context * ctx,
         enum ggml_type        type,
         int64_t               ne0,

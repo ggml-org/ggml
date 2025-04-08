@@ -280,7 +280,7 @@ int main(int argc, const char** argv) {
             t1, t2, t3, t4, t5,
         };
 
-        struct ggml_tensor * m4 = ggml_custom(ctx, GGML_TYPE_I32, 10, 2, 1, 1, args, sizeof(args)/sizeof(args[0]), custom, GGML_N_TASKS_MAX, g_userdata);
+        struct ggml_tensor * m4 = ggml_custom_4d(ctx, GGML_TYPE_I32, 10, 2, 1, 1, args, sizeof(args)/sizeof(args[0]), custom, GGML_N_TASKS_MAX, g_userdata);
 
         struct ggml_cgraph * graph = ggml_new_graph(ctx);
         ggml_build_forward_expand(graph, m4);

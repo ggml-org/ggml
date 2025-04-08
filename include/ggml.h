@@ -1968,7 +1968,7 @@ extern "C" {
 
     typedef void (*ggml_custom_op_t)(struct ggml_tensor * dst , int ith, int nth, void * userdata);
 
-    GGML_API struct ggml_tensor * ggml_custom(
+    GGML_API struct ggml_tensor * ggml_custom_4d(
             struct ggml_context * ctx,
             enum ggml_type        type,
             int64_t               ne0,
