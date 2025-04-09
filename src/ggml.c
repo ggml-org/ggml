@@ -880,15 +880,15 @@ static const size_t GGML_OBJECT_SIZE = sizeof(struct ggml_object);
 //
 
 struct ggml_context {
-    size_t mem_size;
-    void * mem_buffer;
-    bool   mem_buffer_owned;
-    bool   no_alloc;
+    size_t mem_size;// Total size of the memory buffer allocated for this context.
+    void * mem_buffer;// Total size of the memory buffer allocated for this context.
+    bool   mem_buffer_owned;// Indicates if the memory buffer is owned by this context or not.
+    bool   no_alloc;// Indicates if the context should allocate memory or not.
 
-    int    n_objects;
+    int    n_objects;//Number of objects (e.g., tensors) currently allocated in this context.
 
-    struct ggml_object * objects_begin;
-    struct ggml_object * objects_end;
+    struct ggml_object * objects_begin;//pointer to the beginning of the list of objects
+    struct ggml_object * objects_end;//pointer to the end of the list of objects
 };
 
 struct ggml_context_container {
@@ -1297,7 +1297,8 @@ enum ggml_type ggml_ftype_to_ggml_type(enum ggml_ftype ftype) {
 }
 
 size_t ggml_tensor_overhead(void) {
-    return GGML_OBJECT_SIZE + GGML_TENSOR_SIZE;
+    //tensor overhead is the size of tensor struct + size of object struct， ggml_obj is used to describe the tensor/graph/buffer
+    return GGML_OBJECT_SIZE + GGML_TENSOR_SIZE; 
 }
 
 bool ggml_is_transposed(const struct ggml_tensor * tensor) {

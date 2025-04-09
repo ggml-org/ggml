@@ -14,10 +14,10 @@
 #include <vector>
 
 struct ggml_opt_dataset {
-    struct ggml_context   * ctx    = nullptr;
-    ggml_backend_buffer_t   buf    = nullptr;
-    struct ggml_tensor    * data   = nullptr;
-    struct ggml_tensor    * labels = nullptr;
+    struct ggml_context   * ctx    = nullptr; //A memory context used to manage the tensors (data and labels) associated with the dataset.
+    ggml_backend_buffer_t   buf    = nullptr; // A backend buffer used to store the dataset's tensors in a specific memory backend (e.g., CPU or GPU)
+    struct ggml_tensor    * data   = nullptr; // A tensor that holds the input data for the dataset
+    struct ggml_tensor    * labels = nullptr; // A tensor that holds the labels for the dataset
 
     int64_t ndata       = -1;
     int64_t ndata_shard = -1;
@@ -72,7 +72,15 @@ struct ggml_opt_result {
 };
 
 // ====== Dataset ======
-
+/**
+ * @brief a function to initialize a dataset
+ * 
+ * @param ne_datapoint // The number of features (or dimensions) in each data point.
+ * @param ne_label //The number of labels associated with each data point.
+ * @param ndata // The total number of data points in the dataset
+ * @param ndata_shard The number of data points in each shard. Shards are used to divide the dataset into smaller chunks for distributed or batched processing.
+ * @return ggml_opt_dataset_t 
+ */
 ggml_opt_dataset_t ggml_opt_dataset_init(int64_t ne_datapoint, int64_t ne_label, int64_t ndata, int64_t ndata_shard) {
     GGML_ASSERT(ne_datapoint >  0);
     GGML_ASSERT(ne_label     >= 0);
@@ -85,11 +93,11 @@ ggml_opt_dataset_t ggml_opt_dataset_init(int64_t ne_datapoint, int64_t ne_label,
 
     {
         struct ggml_init_params params = {
-            /*.mem_size   =*/ 2*ggml_tensor_overhead(),
+            /*.mem_size   =*/ 2*ggml_tensor_overhead(), //data tensor and labels tensor
             /*.mem_buffer =*/ nullptr,
             /*.no_alloc   =*/ true,
         };
-        result->ctx = ggml_init(params);
+        result->ctx = ggml_init(params);//the brace hope params will be destructed immediately
     }
 
     result->data = ggml_new_tensor_2d(result->ctx, GGML_TYPE_F32, ne_datapoint, ndata);
