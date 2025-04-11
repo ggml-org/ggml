@@ -6198,7 +6198,7 @@ static void ggml_compute_forward_depthwise_conv_2d_whcn(
     }
 }
 
-static void ggml_compute_forward_depthwise_conv_2d(
+void ggml_compute_forward_depthwise_conv_2d(
         const struct ggml_compute_params * params,
         struct ggml_tensor * dst) {
 
