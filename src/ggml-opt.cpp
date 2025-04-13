@@ -93,14 +93,14 @@ ggml_opt_dataset_t ggml_opt_dataset_init(int64_t ne_datapoint, int64_t ne_label,
 
     {
         struct ggml_init_params params = {
-            /*.mem_size   =*/ 2*ggml_tensor_overhead(), //data tensor and labels tensor
+            /*.mem_size   =*/ 2*ggml_tensor_overhead(), //data tensor and labels tensor itself, not include the tensors' data
             /*.mem_buffer =*/ nullptr,
             /*.no_alloc   =*/ true,
         };
         result->ctx = ggml_init(params);//the brace hope params will be destructed immediately
     }
-
-    result->data = ggml_new_tensor_2d(result->ctx, GGML_TYPE_F32, ne_datapoint, ndata);
+    // after init, the memory of ctx is allocated, the tensors memory is also allocated, but the tensors' data is not allocated yet
+    result->data = ggml_new_tensor_2d(result->ctx, GGML_TYPE_F32, ne_datapoint, ndata);//get data tensor memory from context, set tensor attributes
     result->nbs_data = ggml_nbytes(result->data) * ndata_shard/ndata;
 
     if (ne_label > 0) {
