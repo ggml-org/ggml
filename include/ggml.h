@@ -1687,7 +1687,9 @@ extern "C" {
             int                   stride0,
             int                   stride1,
             int                   pad0,
-            int                   pad1);
+            int                   pad1,
+            int                   dilation0,
+            int                   dilation1);
 
     GGML_API struct ggml_tensor * ggml_conv_transpose_2d_p0(
             struct ggml_context * ctx,

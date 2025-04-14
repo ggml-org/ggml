@@ -6079,6 +6079,8 @@ struct ggml_depthwise_conv_2d_params {
     int stride_y;
     int pad_x;
     int pad_y;
+    int dilation_x;
+    int dilation_y;
 };
 
 static void ggml_compute_forward_depthwise_conv_2d_cwhn(
@@ -6117,12 +6119,12 @@ static void ggml_compute_forward_depthwise_conv_2d_cwhn(
             for (int64_t c_i = 0; c_i < c_pkg_end; c_i += pkg_size) {
                 GGML_F32_VEC sum = GGML_F32_VEC_ZERO;
                 for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
-                    const int64_t src_y = src_y_base + knl_y;
+                    const int64_t src_y = src_y_base + knl_y * p.dilation_y;
                     if (src_y < 0 || src_y >= p.src_h) {
                         continue;
                     }
                     for (int64_t knl_x = 0; knl_x < p.knl_w; ++knl_x) {
-                        const int64_t src_x = src_x_base + knl_x;
+                        const int64_t src_x = src_x_base + knl_x * p.dilation_x;
                         if (src_x < 0 || src_x >= p.src_w) {
                             continue;
                         }
@@ -6138,12 +6140,12 @@ static void ggml_compute_forward_depthwise_conv_2d_cwhn(
             for (int64_t c_i = c_pkg_end; c_i < c; ++c_i) {
                 float sum = 0.0f;
                 for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
-                    const int64_t src_y = src_y_base + knl_y;
+                    const int64_t src_y = src_y_base + knl_y * p.dilation_y;
                     if (src_y < 0 || src_y >= p.src_h) {
                         continue;
                     }
                     for (int64_t knl_x = 0; knl_x < p.knl_w; ++knl_x) {
-                        const int64_t src_x = src_x_base + knl_x;
+                        const int64_t src_x = src_x_base + knl_x * p.dilation_x;
                         if (src_x < 0 || src_x >= p.src_w) {
                             continue;
                         }
@@ -6179,12 +6181,12 @@ static void ggml_compute_forward_depthwise_conv_2d_whcn(
 
                 float sum = 0.0f;                
                 for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
-                    const int64_t src_y = dst_y * p.stride_y + knl_y - p.pad_y;
+                    const int64_t src_y = dst_y * p.stride_y + knl_y * p.dilation_y - p.pad_y;
                     if (src_y < 0 || src_y >= p.src_h) {
                         continue;
                     }
                     for (int64_t knl_x = 0; knl_x < p.knl_w; ++knl_x) {
-                        const int64_t src_x = dst_x * p.stride_x + knl_x - p.pad_x;
+                        const int64_t src_x = dst_x * p.stride_x + knl_x * p.dilation_x - p.pad_x;
                         if (src_x < 0 || src_x >= p.src_w) {
                             continue;
                         }
@@ -6217,6 +6219,8 @@ void ggml_compute_forward_depthwise_conv_2d(
     p.stride_y = dst->op_params[1];
     p.pad_x = dst->op_params[2];
     p.pad_y = dst->op_params[3];
+    p.dilation_x = dst->op_params[4];
+    p.dilation_y = dst->op_params[5];
 
     GGML_ASSERT(kernel->ne[3] == p.channels);
     GGML_ASSERT(dst->ne[3] == p.batch);

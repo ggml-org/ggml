@@ -4068,12 +4068,14 @@ struct ggml_tensor * ggml_depthwise_conv_2d(
         int                   stride0,
         int                   stride1,
         int                   pad0,
-        int                   pad1) {
+        int                   pad1,
+        int                   dilation0,  
+        int                   dilation1) {
     GGML_ASSERT(a->ne[2] == 1);
     GGML_ASSERT(a->ne[3] == b->ne[2]);
     int64_t ne[4];
-    ne[0] = ggml_calc_conv_output_size(b->ne[0], a->ne[0], stride0, pad0, 1);
-    ne[1] = ggml_calc_conv_output_size(b->ne[1], a->ne[1], stride1, pad1, 1);
+    ne[0] = ggml_calc_conv_output_size(b->ne[0], a->ne[0], stride0, pad0, dilation0);
+    ne[1] = ggml_calc_conv_output_size(b->ne[1], a->ne[1], stride1, pad1, dilation1);
     ne[2] = b->ne[2];
     ne[3] = b->ne[3];
 
@@ -4088,7 +4090,7 @@ struct ggml_tensor * ggml_depthwise_conv_2d(
         result->nb[2] = type_size;
     }
 
-    int32_t params[] = { stride0, stride1, pad0, pad1 };
+    int32_t params[] = { stride0, stride1, pad0, pad1, dilation0, dilation1 };
     ggml_set_op_params(result, params, sizeof(params));
 
     result->op     = GGML_OP_DEPTHWISE_CONV_2D;

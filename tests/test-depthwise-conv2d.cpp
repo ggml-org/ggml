@@ -23,10 +23,10 @@ std::vector<float> f32_range(int n, float start, float end) {
 std::vector<float> depthwise_conv_2d_reference(
         int src_w, int src_h, const float * src_data,
         int knl_w, int knl_h, const float * knl_data,
-        int channels, int batch, int stride, int pad) {
+        int channels, int batch, int stride, int pad, int dilation) {
 
-    int dst_w = (src_w + 2 * pad - knl_w) / stride + 1;
-    int dst_h = (src_h + 2 * pad - knl_h) / stride + 1;
+    int dst_w = (src_w + 2 * pad - dilation * (knl_w - 1) - 1) / stride + 1;
+    int dst_h = (src_h + 2 * pad - dilation * (knl_h - 1) - 1) / stride + 1;
     std::vector<float> dst_data(dst_w * dst_h * channels * batch);
 
     for (int b = 0; b < batch; b++) {
@@ -38,8 +38,8 @@ std::vector<float> depthwise_conv_2d_reference(
                     float sum = 0;
                     for (int knl_y = 0; knl_y < knl_h; knl_y++) {
                         for (int knl_x = 0; knl_x < knl_w; knl_x++) {
-                            int src_x = x * stride + knl_x - pad;
-                            int src_y = y * stride + knl_y - pad;
+                            int src_x = x * stride + knl_x * dilation - pad;
+                            int src_y = y * stride + knl_y * dilation - pad;
                             if (src_x >= 0 && src_x < src_w && src_y >= 0 && src_y < src_h) {
                                 sum += src_base[c * src_w * src_h + src_y * src_w + src_x] *
                                        knl_data[c * knl_w * knl_h + knl_y * knl_w + knl_x];
@@ -68,7 +68,13 @@ bool check_equal(const std::vector<float> & result, const std::vector<float> & e
     return true;
 }
 
-bool test_depthwise_conv_2d(int channels, int kernel_size, int stride, int pad, bool contiguous_channels) {
+bool test_depthwise_conv_2d(
+        int channels,
+        int kernel_size,
+        int stride,
+        int pad,
+        int dilation,
+        bool contiguous_channels) {
     ggml_time_init();
 
     const int batch = 2;
@@ -99,7 +105,8 @@ bool test_depthwise_conv_2d(int channels, int kernel_size, int stride, int pad, 
         knl = ggml_cont(ctx, ggml_permute(ctx, knl, 2, 3, 1, 0));
         knl = ggml_permute(ctx, knl, 3, 2, 0, 1);
     }
-    ggml_tensor * res = ggml_depthwise_conv_2d(ctx, knl, src, stride, stride, pad, pad);
+    ggml_tensor * res = ggml_depthwise_conv_2d(
+        ctx, knl, src, stride, stride, pad, pad, dilation, dilation);
     if (contiguous_channels) {
         res = ggml_cont(ctx, res);
     }
@@ -124,21 +131,23 @@ bool test_depthwise_conv_2d(int channels, int kernel_size, int stride, int pad, 
     std::vector<float> expected = depthwise_conv_2d_reference(
         src_w, src_h, src_values.data(),
         knl_w, knl_h, knl_values.data(),
-        channels, batch, stride, pad);
+        channels, batch, stride, pad, dilation);
 
     bool passed = check_equal(res_values, expected);
 
-    printf("ggml_depthwise_conv_2d(channels=%d, kernel=%dx%d, stride=%d, pad=%d, layout=%s): %s\n",
-        channels, kernel_size, kernel_size, stride, pad, contiguous_channels ? "CWHN" : "WHCN",
+    printf("ggml_depthwise_conv_2d(channels=%d, kernel=%dx%d, stride=%d, pad=%d, dilation=%d, layout=%s): %s\n",
+        channels, kernel_size, kernel_size, stride, pad, dilation, contiguous_channels ? "CWHN" : "WHCN",
         passed ? "\033[32mPASSED\033[0m" : "\033[31mFAILED\033[0m");
     return passed;
 }
 
 int main(int argc, char ** argv) {
     bool passed = true;
-    passed = test_depthwise_conv_2d(3, 1, 1, 0, false) && passed;
-    passed = test_depthwise_conv_2d(3, 1, 1, 0, true) && passed;
-    passed = test_depthwise_conv_2d(42, 3, 2, 1, false) && passed;
-    passed = test_depthwise_conv_2d(42, 3, 2, 1, true) && passed;
+    passed = test_depthwise_conv_2d(3, 1, 1, 0, 1, false) && passed;
+    passed = test_depthwise_conv_2d(3, 1, 1, 0, 1, true) && passed;
+    passed = test_depthwise_conv_2d(42, 3, 2, 1, 1, false) && passed;
+    passed = test_depthwise_conv_2d(42, 3, 2, 1, 1, true) && passed;
+    passed = test_depthwise_conv_2d(8, 5, 1, 2, 2, false) && passed;
+    passed = test_depthwise_conv_2d(8, 5, 1, 2, 2, true) && passed;
     return passed ? 0 : 1;
 }
