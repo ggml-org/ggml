@@ -88,9 +88,9 @@ void test_pad_reflect_1d(bool use_gpu) {
     // Test cases for different padding configurations
     {
         params = ggml_init_params{
-            16*1024*1024,
-            nullptr,
-            true
+            /*.mem_size   =*/ 16*1024*1024,
+            /*.mem_buffer =*/ nullptr,
+            /*.no_alloc.  =*/ true
         };
 
         ggml_log_set(ggml_log_callback_default, nullptr);
