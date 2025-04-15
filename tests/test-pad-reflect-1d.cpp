@@ -25,7 +25,9 @@ static void ggml_log_callback_default(ggml_log_level level, const char * text, v
 
 struct ggml_context* make_ctx(void) {
     struct ggml_init_params params = {
-        .mem_size = 2 * 1024 * 1024,
+        2 * 1024 * 1024,
+        nullptr,
+        false
     };
     return ggml_init(params);
 }
@@ -86,9 +88,9 @@ void test_pad_reflect_1d(bool use_gpu) {
     // Test cases for different padding configurations
     {
         params = ggml_init_params{
-            .mem_size   = 16*1024*1024,
-            .mem_buffer = NULL,
-            .no_alloc   = true,
+            16*1024*1024,
+            nullptr,
+            true
         };
 
         ggml_log_set(ggml_log_callback_default, nullptr);
@@ -145,9 +147,9 @@ void test_pad_reflect_1d(bool use_gpu) {
 
     {
         params = ggml_init_params{
-            .mem_size   = 16*1024*1024,
-            .mem_buffer = NULL,
-            .no_alloc   = true,
+            16*1024*1024,
+            nullptr,
+            true
         };
 
         ggml_log_set(ggml_log_callback_default, nullptr);
