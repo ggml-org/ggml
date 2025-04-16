@@ -1677,10 +1677,11 @@ extern "C" {
             int                  d1); // dilation dimension 1
 
     // Depthwise 2D convolution
+    // may be faster than ggml_conv_2d_dw, but not available in all backends
     // a:   KW    KH    1    C    convolution kernel
     // b:   W     H     C    N    input data
     // res: W_out H_out C    N
-    GGML_API struct ggml_tensor * ggml_depthwise_conv_2d(
+    GGML_API struct ggml_tensor * ggml_conv_2d_dw_direct(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
             struct ggml_tensor  * b,

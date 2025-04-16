@@ -4059,9 +4059,9 @@ struct ggml_tensor * ggml_conv_2d_dw(
     return result;
 }
 
-// ggml_depthwise_conv_2d
+// ggml_conv_2d_dw_direct
 
-struct ggml_tensor * ggml_depthwise_conv_2d(
+struct ggml_tensor * ggml_conv_2d_dw_direct(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
         struct ggml_tensor  * b,

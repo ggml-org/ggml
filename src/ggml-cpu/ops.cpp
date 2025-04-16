@@ -6084,11 +6084,11 @@ struct ggml_depthwise_conv_2d_params {
 };
 
 static void ggml_compute_forward_depthwise_conv_2d_cwhn(
-        const struct ggml_compute_params * params,
-        const struct ggml_tensor * src,
-        const struct ggml_tensor * kernel,
-        struct ggml_tensor * dst,
-        const struct ggml_depthwise_conv_2d_params p) {
+        const ggml_compute_params * params,
+        const ggml_tensor * src,
+        const ggml_tensor * kernel,
+        ggml_tensor * dst,
+        const ggml_depthwise_conv_2d_params & p) {
 
     const int64_t c = p.channels;
     const float * knl_data = (const float *)kernel->data;
@@ -6160,11 +6160,11 @@ static void ggml_compute_forward_depthwise_conv_2d_cwhn(
 }
 
 static void ggml_compute_forward_depthwise_conv_2d_whcn(
-        const struct ggml_compute_params * params,
-        const struct ggml_tensor * src,
-        const struct ggml_tensor * kernel,
-        struct ggml_tensor * dst,
-        const struct ggml_depthwise_conv_2d_params p) {
+        const ggml_compute_params * params,
+        const ggml_tensor * src,
+        const ggml_tensor * kernel,
+        ggml_tensor * dst,
+        const ggml_depthwise_conv_2d_params & p) {
 
     const int64_t n = p.channels * p.batch;
     const int64_t per_thread = (n + params->nth - 1) / params->nth;
@@ -6179,7 +6179,7 @@ static void ggml_compute_forward_depthwise_conv_2d_whcn(
         for (int64_t dst_y = 0; dst_y < p.dst_h; ++dst_y) {
             for (int64_t dst_x = 0; dst_x < p.dst_w; ++dst_x) {
 
-                float sum = 0.0f;                
+                float sum = 0.0f;
                 for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
                     const int64_t src_y = dst_y * p.stride_y + knl_y * p.dilation_y - p.pad_y;
                     if (src_y < 0 || src_y >= p.src_h) {
@@ -6201,12 +6201,12 @@ static void ggml_compute_forward_depthwise_conv_2d_whcn(
 }
 
 void ggml_compute_forward_depthwise_conv_2d(
-        const struct ggml_compute_params * params,
-        struct ggml_tensor * dst) {
+        const ggml_compute_params * params,
+        ggml_tensor * dst) {
 
-    const struct ggml_tensor * kernel = dst->src[0];
-    const struct ggml_tensor * src = dst->src[1];
-    struct ggml_depthwise_conv_2d_params p;
+    const ggml_tensor * kernel = dst->src[0];
+    const ggml_tensor * src = dst->src[1];
+    ggml_depthwise_conv_2d_params p;
     p.channels = src->ne[2];
     p.batch = src->ne[3];
     p.src_w = src->ne[0];
