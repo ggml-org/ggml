@@ -385,9 +385,9 @@ set_property(TEST ${TEST_TARGET} PROPERTY ENVIRONMENT "LLVM_PROFILE_FILE=${TEST_
 
 
 #
-# test-depthwise-conv2d
+# test-conv2d-dw
 
-set(TEST_TARGET test-depthwise-conv2d)
+set(TEST_TARGET test-conv2d-dw)
 add_executable(${TEST_TARGET} ${TEST_TARGET}.cpp)
 target_link_libraries(${TEST_TARGET} PRIVATE ggml)
 add_test(NAME ${TEST_TARGET} COMMAND $<TARGET_FILE:${TEST_TARGET}>)

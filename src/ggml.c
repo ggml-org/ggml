@@ -956,7 +956,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "CONV_TRANSPOSE_1D",
     "IM2COL",
     "IM2COL_BACK",
-    "DEPTHWISE_CONV_2D",
+    "CONV_2D_DW",
     "CONV_TRANSPOSE_2D",
     "POOL_1D",
     "POOL_2D",
@@ -1051,7 +1051,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "conv_transpose_1d(x)",
     "im2col(x)",
     "im2col_back(x)",
-    "depthwise_conv_2d(x)",
+    "conv_2d_dw(x)",
     "conv_transpose_2d(x)",
     "pool_1d(x)",
     "pool_2d(x)",
@@ -4093,7 +4093,7 @@ struct ggml_tensor * ggml_conv_2d_dw_direct(
     int32_t params[] = { stride0, stride1, pad0, pad1, dilation0, dilation1 };
     ggml_set_op_params(result, params, sizeof(params));
 
-    result->op     = GGML_OP_DEPTHWISE_CONV_2D;
+    result->op     = GGML_OP_CONV_2D_DW;
     result->src[0] = a;
     result->src[1] = b;
     return result;

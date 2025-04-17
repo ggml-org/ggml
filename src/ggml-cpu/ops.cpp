@@ -6064,9 +6064,9 @@ void ggml_compute_forward_conv_transpose_2d(
     }
 }
 
-// ggml_compute_forward_depthwise_conv_2d
+// ggml_compute_forward_conv_2d_dw
 
-struct ggml_depthwise_conv_2d_params {
+struct ggml_conv_2d_dw_params {
     int64_t channels;
     int64_t batch;
     int64_t src_w;
@@ -6083,12 +6083,12 @@ struct ggml_depthwise_conv_2d_params {
     int dilation_y;
 };
 
-static void ggml_compute_forward_depthwise_conv_2d_cwhn(
+static void ggml_compute_forward_conv_2d_dw_cwhn(
         const ggml_compute_params * params,
         const ggml_tensor * src,
         const ggml_tensor * kernel,
         ggml_tensor * dst,
-        const ggml_depthwise_conv_2d_params & p) {
+        const ggml_conv_2d_dw_params & p) {
 
     const int64_t c = p.channels;
     const float * knl_data = (const float *)kernel->data;
@@ -6159,12 +6159,12 @@ static void ggml_compute_forward_depthwise_conv_2d_cwhn(
     }
 }
 
-static void ggml_compute_forward_depthwise_conv_2d_whcn(
+static void ggml_compute_forward_conv_2d_dw_whcn(
         const ggml_compute_params * params,
         const ggml_tensor * src,
         const ggml_tensor * kernel,
         ggml_tensor * dst,
-        const ggml_depthwise_conv_2d_params & p) {
+        const ggml_conv_2d_dw_params & p) {
 
     const int64_t n = p.channels * p.batch;
     const int64_t per_thread = (n + params->nth - 1) / params->nth;
@@ -6200,13 +6200,13 @@ static void ggml_compute_forward_depthwise_conv_2d_whcn(
     }
 }
 
-void ggml_compute_forward_depthwise_conv_2d(
+void ggml_compute_forward_conv_2d_dw(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
 
     const ggml_tensor * kernel = dst->src[0];
     const ggml_tensor * src = dst->src[1];
-    ggml_depthwise_conv_2d_params p;
+    ggml_conv_2d_dw_params p;
     p.channels = src->ne[2];
     p.batch = src->ne[3];
     p.src_w = src->ne[0];
@@ -6226,11 +6226,11 @@ void ggml_compute_forward_depthwise_conv_2d(
     GGML_ASSERT(dst->ne[3] == p.batch);
 
     if (ggml_is_contiguous(src)) {
-        ggml_compute_forward_depthwise_conv_2d_whcn(params, src, kernel, dst, p);
+        ggml_compute_forward_conv_2d_dw_whcn(params, src, kernel, dst, p);
     } else if (ggml_is_contiguous_channels(src)) {
         // kernel should also have channels most contiguous in memory
         GGML_ASSERT(kernel->nb[0] >= kernel->nb[2] && kernel->nb[1] >= kernel->nb[0]);
-        ggml_compute_forward_depthwise_conv_2d_cwhn(params, src, kernel, dst, p);
+        ggml_compute_forward_conv_2d_dw_cwhn(params, src, kernel, dst, p);
     } else {
         GGML_ABORT("non-contiguous memory layout not supported");
     }
