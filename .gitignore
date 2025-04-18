@@ -10,7 +10,7 @@ CMakeSettings.json
 .vs/
 .vscode/
 .clangd
-
+.llama_env/
 .venv/
 ggml_env/
 .exrc
