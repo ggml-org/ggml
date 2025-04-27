@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 source common.sh
 
 echo -e "
- ${CC}   ${CT}ggml-org/llama.cpp                         feature  
+ ${CC}   ${CT}llama.cpp                                 feature   
 
                    ${CT}   Cache reuse   ${CC}
 

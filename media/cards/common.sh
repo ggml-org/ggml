@@ -65,7 +65,7 @@ function gg_add_frame {
 
     # bg
 
-    magick ${fname} -ping -format "%wx%h" info: | xargs -I{} magick -size {} xc:"rgb(238,238,238)" bg.png
+    magick ${fname} -ping -format "%wx%h" info: | xargs -I{} magick -size {} xc:"rgba(188,188,188,255)" bg.png
 
     # frame
 
@@ -82,7 +82,7 @@ function gg_add_frame {
         info: > frame.mvg
 
     magick ${fname} -border 0 -alpha transparent \
-        -background none -fill "rgb(238,238,238)" -stroke none \
+        -background none -fill "rgba(238,238,238,255)" -stroke none \
         -draw "@frame.mvg"    frame-bg.png
 
     magick ${fname} -border 0 -alpha transparent \
@@ -91,7 +91,7 @@ function gg_add_frame {
 
     # shadow
 
-    x0="$(bc <<< "${p_fx0} + 2*${p_s}")"
+    x0="$(bc <<< "${p_fx0} + 3*${p_s}")"
     y0="$(bc <<< "${p_fy0} + 4*${p_s}")"
 
     x1="%[fx:w - $(bc <<< "${p_fx0} - 2*${p_s}")]"
@@ -101,11 +101,27 @@ function gg_add_frame {
         -format "
     roundrectangle ${x0},${y0} ${x1},${y1} ${p_fr},${p_fr};
     " \
-        info: > shadow.mvg
+        info: > shadow0.mvg
+
+    magick ${fname} -border 0 -alpha transparent \
+        -background none -fill darkgray -stroke darkgray -strokewidth $p_sw \
+        -draw "@shadow0.mvg"    shadow0.png
+
+    x0="$(bc <<< "${p_fx0} + 1*${p_s}")"
+    y0="$(bc <<< "${p_fy0} + 2*${p_s}")"
+
+    x1="%[fx:w - $(bc <<< "${p_fx0} + 1*${p_s}")]"
+    y1="%[fx:h - $(bc <<< "${p_fy0} - 2*${p_s}")]"
+
+    magick ${fname} \
+        -format "
+    roundrectangle ${x0},${y0} ${x1},${y1} ${p_fr},${p_fr};
+    " \
+        info: > shadow1.mvg
 
     magick ${fname} -border 0 -alpha transparent \
         -background none -fill gray -stroke gray -strokewidth $p_sw \
-        -draw "@shadow.mvg"    shadow.png
+        -draw "@shadow1.mvg"    shadow1.png
 
     # title
 
@@ -132,7 +148,8 @@ function gg_add_frame {
     #frame-mask.png -compose DstIn -composite \
     magick ${fname} -alpha set -bordercolor none -border 0  \
         bg.png       -compose Over -composite \
-        shadow.png   -compose Over -composite \
+        shadow0.png  -compose Over -composite \
+        shadow1.png  -compose Over -composite \
         frame-bg.png -compose Over -composite \
         title.png    -compose Over -composite \
         frame.png    -compose Over -composite \
