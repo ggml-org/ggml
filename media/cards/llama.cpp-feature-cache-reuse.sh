@@ -47,23 +47,30 @@ p_fy0=$(bc <<< "0.90*${p_lh}")
 p_fr=$(bc <<< "8.0*${p_s}")
 
 echo -e "
- ${CC}   ${CT}ggml-org/llama.cpp                 model  
+ ${CC}   ${CT}ggml-org/llama.cpp                         feature  
 
-                ${CT}   Gemma 3   ${CC}
+                   ${CT}   Cache reuse   ${CC}
 
-    ${CC}creator: ${CA}Google ${CC}
-    ${CC}license: ${CA}Gemma Terms of Use ${CC}
+    ${CA}An advanced technique for reducing the
+    prompt-processing time by \"shifting\" chunks
+    of the previous context to new positions. ${CC}
 
-    ${CC}sizes: ${CA}4B, 12B, 27B
-    ${CC}capab: ${CA}Text, Tools, Vision
+    ${TC}                                                ${CC}
+    ${TH} # prompt 0 (cached)                            ${CC}
+    ${TW} ${TA}AAA${TW}B${TA}CCCC${TW}DDD${TA}EE${TW}F${TA}GG${TW}HHH${TA}III${TW}xxx                      ${CC}
+    ${TC}                                                ${CC}
+    ${TH} # prompt 1 (reuse from prompt 0)               ${CC}
+    ${TW} ${TA}AAACCCCEEGGIII${TW}yyy                              ${CC}
+    ${TC}                                                ${CC}
 
-    ${CC}attn:   ${CA}SWA 1:4 ${CC}  |  head size: ${CA}256 ${CC}
-    ${CC}vision: ${CA}SigLIP ${CC}   |  ${CC}extra:     ${CA}QAT ${CC}
+    ${CC}uses: ${CA}partial context updates ${CC}
+    ${CC}req:  ${CA}RoPE encoding ${CC}
 
-    ${TC}                                      ${CC}
-    ${TC} > llama-cli    ${TA}-hf ggml-org/gemma-3  ${CC}
-    ${TC} > llama-server ${TA}-hf ggml-org/gemma-3  ${CC}
-    ${TC}                                      ${CC}
+    ${CC}${CL}https://github.com/ggml-org/llama.cpp/pull/9866 ${CC}
+
+    ${TC}                                                ${CC}
+    ${TC} > llama-server ${TA}--cache-reuse 256 ${TC}[...]         ${CC}
+    ${TC}                                                ${CC}
 " | textimg --background 238,238,238,255 -F $p_fs -o output.png -f ../fonts/ProFontWinTweaked/ProFontWindows.ttf
 
 x0=$(bc <<< "${p_fx0}")

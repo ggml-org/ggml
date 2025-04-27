@@ -3,16 +3,14 @@
 cd "$(dirname "$0")"
 
 #CT="\x1b[48;2;155;255;255m\x1b[38;2;029;161;242m"
+#CT="\x1b[49m\x1b[0m\x1b[38;2;035;008;165m"
 CT="\x1b[49m\x1b[0m\x1b[38;2;000;000;000m"
 CR="\x1b[49m\x1b[0m\x1b[38;2;205;008;008m"
-CL="\x1b[49m\x1b[0m\x1b[38;2;035;008;165m"
 
 CC="\x1b[49m\x1b[0m\x1b[38;2;080;080;080m"
-TC="\x1b[49m\x1b[1m\x1b[48;2;000;000;000m\x1b[38;2;255;225;255m"
-TA="\x1b[49m\x1b[1m\x1b[48;2;000;000;000m\x1b[38;2;110;225;110m"
+TC="\x1b[49m\x1b[1m\x1b[48;2;000;000;000m\x1b[38;2;110;225;110m"
 TH="\x1b[49m\x1b[1m\x1b[48;2;000;000;000m\x1b[38;2;160;160;160m"
 TO="\x1b[49m\x1b[1m\x1b[48;2;000;000;000m\x1b[38;2;238;138;070m"
-TW="\x1b[49m\x1b[1m\x1b[48;2;000;000;000m\x1b[38;2;255;255;255m"
 CG="\x1b[49m\x1b[0m\x1b[38;2;000;255;124m"
 CY="\x1b[49m\x1b[0m\x1b[38;2;255;238;110m"
 CO="\x1b[49m\x1b[0m\x1b[38;2;208;058;050m"
@@ -47,12 +45,12 @@ p_fy0=$(bc <<< "0.90*${p_lh}")
 p_fr=$(bc <<< "8.0*${p_s}")
 
 echo -e "
- ${CC}   ${CT}ggml-org/llama.cpp                 model  
+ ${CC}   ${CT}ggml-org/llama.cpp                 feature  
 
-                ${CT}   Gemma 3   ${CC}
+                ${CT}   Speculative Decoding   ${CC}
 
-    ${CC}creator: ${CA}Google ${CC}
-    ${CC}license: ${CA}Gemma Terms of Use ${CC}
+    ${CC}perf: ${CA}improved text-generation speed ${CC}
+    ${CC}uses: ${CA}code generation, structured output, summarization ${CC}
 
     ${CC}sizes: ${CA}4B, 12B, 27B
     ${CC}capab: ${CA}Text, Tools, Vision
@@ -60,10 +58,12 @@ echo -e "
     ${CC}attn:   ${CA}SWA 1:4 ${CC}  |  head size: ${CA}256 ${CC}
     ${CC}vision: ${CA}SigLIP ${CC}   |  ${CC}extra:     ${CA}QAT ${CC}
 
-    ${TC}                                      ${CC}
-    ${TC} > llama-cli    ${TA}-hf ggml-org/gemma-3  ${CC}
-    ${TC} > llama-server ${TA}-hf ggml-org/gemma-3  ${CC}
-    ${TC}                                      ${CC}
+
+    ${TC}                                                ${CC}
+    ${TC} > llama-server                                 ${CC}
+    ${TC}     ${TC}-hf  ggml-org/Qwen2.5-Coder-14B-Instruct-Q8_0-GGUF   ${CC}
+    ${TC}     ${TO}-hfd ggml-org/Qwen2.5-Coder-1.5B-Instruct-Q8_0-GGUF  ${CC}
+    ${TC}                                                ${CC}
 " | textimg --background 238,238,238,255 -F $p_fs -o output.png -f ../fonts/ProFontWinTweaked/ProFontWindows.ttf
 
 x0=$(bc <<< "${p_fx0}")
