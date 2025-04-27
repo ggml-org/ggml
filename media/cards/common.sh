@@ -63,6 +63,12 @@ p_fr=$(bc <<< "8.0*${p_s}")
 function gg_add_frame {
     fname=$1
 
+    # bg
+
+    magick ${fname} -ping -format "%wx%h" info: | xargs -I{} magick -size {} xc:"rgb(238,238,238)" bg.png
+
+    # frame
+
     x0=$(bc <<< "${p_fx0}")
     y0=$(bc <<< "${p_fy0}")
 
@@ -76,36 +82,32 @@ function gg_add_frame {
         info: > frame.mvg
 
     magick ${fname} -border 0 -alpha transparent \
+        -background none -fill "rgb(238,238,238)" -stroke none \
+        -draw "@frame.mvg"    frame-bg.png
+
+    magick ${fname} -border 0 -alpha transparent \
         -background none -fill none -stroke black -strokewidth $p_sw \
         -draw "@frame.mvg"    frame.png
 
-    x0=$(bc <<< "${p_fx0}")
-    y0=$(bc <<< "${p_fy0}")
+    # shadow
 
-    x1="%[fx:w - $(bc <<< "${p_fx0} + 3*${p_s}")]"
-    y1="%[fx:h - $(bc <<< "${p_fy0} - 1*${p_s}")]"
+    x0="$(bc <<< "${p_fx0} + 2*${p_s}")"
+    y0="$(bc <<< "${p_fy0} + 4*${p_s}")"
 
-    x2="%[fx:w - $(bc <<< "${p_fx0} + 2*${p_s}")]"
-    y2="%[fx:h - $(bc <<< "${p_fy0} - 2*${p_s}")]"
-
-    x3="%[fx:w - $(bc <<< "${p_fx0} + 1*${p_s}")]"
-    y3="%[fx:h - $(bc <<< "${p_fy0} - 3*${p_s}")]"
-
-    x4="%[fx:w - $(bc <<< "${p_fx0} + 0*${p_s}")]"
-    y4="%[fx:h - $(bc <<< "${p_fy0} - 4*${p_s}")]"
+    x1="%[fx:w - $(bc <<< "${p_fx0} - 2*${p_s}")]"
+    y1="%[fx:h - $(bc <<< "${p_fy0} - 4*${p_s}")]"
 
     magick ${fname} \
         -format "
     roundrectangle ${x0},${y0} ${x1},${y1} ${p_fr},${p_fr};
-    roundrectangle ${x0},${y0} ${x2},${y2} ${p_fr},${p_fr};
-    roundrectangle ${x0},${y0} ${x3},${y3} ${p_fr},${p_fr};
-    roundrectangle ${x0},${y0} ${x4},${y4} ${p_fr},${p_fr};
     " \
         info: > shadow.mvg
 
     magick ${fname} -border 0 -alpha transparent \
-        -background none -fill none -stroke gray -strokewidth $p_sw \
+        -background none -fill gray -stroke gray -strokewidth $p_sw \
         -draw "@shadow.mvg"    shadow.png
+
+    # title
 
     x0=$(bc <<< "${p_fx0}")
     y0=$(bc <<< "${p_fy0} + 1.50*${p_lh}")
@@ -129,9 +131,12 @@ function gg_add_frame {
 
     #frame-mask.png -compose DstIn -composite \
     magick ${fname} -alpha set -bordercolor none -border 0  \
-        shadow.png -compose Over -composite \
-        title.png  -compose Over -composite \
-        frame.png  -compose Over -composite \
+        bg.png       -compose Over -composite \
+        shadow.png   -compose Over -composite \
+        frame-bg.png -compose Over -composite \
+        title.png    -compose Over -composite \
+        frame.png    -compose Over -composite \
+        ${fname}     -compose Over -composite \
         ${fname}
 
     x0=$(bc <<< "${p_fx0} + 0.10*${p_lh}")

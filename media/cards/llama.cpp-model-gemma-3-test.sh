@@ -29,7 +29,7 @@ cat card.txt
 echo -e "${C0}"
 
 if [ $do_img -eq 1 ]; then
-    cat card.txt | textimg --background 238,238,238,255 -F $p_fs -o output.png -f ../fonts/ProFontWinTweaked/ProFontWindows.ttf
+    cat card.txt | textimg --background 238,238,238,0 -F $p_fs -o output.png -f ../fonts/ProFontWinTweaked/ProFontWindows.ttf
 
     gg_add_frame output.png
 
