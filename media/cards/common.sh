@@ -41,7 +41,7 @@ CA="\x1b[49m\x1b[0m\x1b[38;2;000;000;000m"
 #CY="\x1b[49m\x1b[0m\x1b[38;2;255;238;110m"
 
 # params
-p_s="2.0"
+p_s="4.0"
 
 p_fs=$(bc <<< "20*${p_s}")
 p_fs=${p_fs%.*}
@@ -49,10 +49,10 @@ p_fs=${p_fs%.*}
 p_sw=$(bc <<< "1.5*${p_s}")
 
 # line height
-p_lh=$(bc <<< "0.8*(1.2*${p_fs})")
+p_lh=$(bc <<< "0.75*(1.2*${p_fs})")
 p_lh=${p_lh%.*}
 
-#echo "line heigh = ${p_lh}"
+#echo "line height = ${p_lh}"
 
 # frame
 p_fx0=$(bc <<< "0.50*${p_lh}")
