@@ -2211,6 +2211,7 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
     return true;
 }
 
+
 int main(int argc, char ** argv) {
     const int64_t t_main_start_us = ggml_time_us();
 
@@ -2279,7 +2280,7 @@ int main(int argc, char ** argv) {
         state.iou_predictions = ggml_new_tensor_1d(state.ctx, GGML_TYPE_F32, 3);
     }
 
-
+    // Encode image
     {
         state.buf_compute_img_enc.resize(ggml_tensor_overhead()*GGML_DEFAULT_GRAPH_SIZE + ggml_graph_overhead());
         state.allocr = ggml_gallocr_new(ggml_backend_cpu_buffer_type());
@@ -2292,32 +2293,32 @@ int main(int argc, char ** argv) {
 
         ggml_graph_compute_helper(state.work_buffer, gf, params.n_threads);
 
-        print_t_f32("embd_img", state.embd_img);
+        // print_t_f32("embd_img", state.embd_img);
 
         ggml_gallocr_free(state.allocr);
         state.allocr = NULL;
         state.work_buffer.clear();
     }
 
+    // Encode prompt and decode mask
     {
         state.buf_compute_fast.resize(ggml_tensor_overhead()*GGML_DEFAULT_GRAPH_SIZE + ggml_graph_overhead());
         state.allocr = ggml_gallocr_new(ggml_backend_cpu_buffer_type());
 
-        // TODO: more varied prompts
         switch (params.prompt.prompt_type) {
-            case SAM_PROMPT_TYPE_POINT:
-                fprintf(stderr, "Using point prompt: (%f, %f)\n", params.prompt.pt.x, params.prompt.pt.y);
-                break;
-            case SAM_PROMPT_TYPE_BOX:
-                fprintf(stderr, "Using box prompt: (%f, %f, %f, %f)\n", 
-                    params.prompt.box.x1, 
-                    params.prompt.box.y1, 
-                    params.prompt.box.x2, 
-                    params.prompt.box.y2);
-                break;
+        case SAM_PROMPT_TYPE_POINT:
+            fprintf(stderr, "Using point prompt: (%f, %f)\n", params.prompt.pt.x, params.prompt.pt.y);
+            break;
+        case SAM_PROMPT_TYPE_BOX:
+            fprintf(stderr, "Using box prompt: (%f, %f, %f, %f)\n", 
+                params.prompt.box.x1, 
+                params.prompt.box.y1, 
+                params.prompt.box.x2, 
+                params.prompt.box.y2);
+            break;
         }
 
-        struct ggml_cgraph  * gf = sam_build_fast_graph(model, state, img0.nx, img0.ny, params.prompt);
+        struct ggml_cgraph * gf = sam_build_fast_graph(model, state, img0.nx, img0.ny, params.prompt);
         if (!gf) {
             fprintf(stderr, "%s: failed to build fast graph\n", __func__);
             return 1;
