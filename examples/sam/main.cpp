@@ -305,13 +305,13 @@ struct sam_image_f32 {
 
 enum sam_prompt_type {
     SAM_PROMPT_TYPE_POINT = 0,
-    SAM_PROMPT_TYPE_BBOX = 0,
+    SAM_PROMPT_TYPE_BOX = 1,
 };
 
 struct sam_prompt {
     sam_prompt_type prompt_type = SAM_PROMPT_TYPE_POINT;
     sam_point pt = { 414.375f, 162.796875f, };
-    sam_box   bbox = { 368.0f, 144.0f, 441.0f, 173.0f };
+    sam_box   box = { 368.0f, 144.0f, 441.0f, 173.0f };
 };
 
 struct sam_params {
@@ -1413,9 +1413,6 @@ struct prompt_encoder_result {
     struct ggml_tensor * embd_prompt_dense = {};
 };
 
-void sam_prompt_encode_embed_points();
-void sam_prompt_encode_embed_boxes();
-
 struct ggml_tensor * sam_prompt_encode_pe_encoding(
         const sam_encoder_prompt & enc,
         struct ggml_context      * ctx0,
@@ -1452,7 +1449,8 @@ prompt_encoder_result sam_encode_prompt(
         const sam_model     & model,
         struct ggml_context * ctx0,
         struct ggml_cgraph  * gf,
-                  sam_state & state) {
+                  sam_state & state,
+                 sam_prompt & prompt) {
 
     const auto & hparams = model.hparams;
     const auto & enc = model.enc_prompt;
@@ -1461,26 +1459,44 @@ prompt_encoder_result sam_encode_prompt(
     ggml_set_name(inp, "prompt_input");
     ggml_set_input(inp);
 
-    struct ggml_tensor * embd_prompt_sparse ;
+    auto * embd_prompt_sparse = [&]() {
+        switch (prompt.prompt_type) {
+        case SAM_PROMPT_TYPE_POINT: {
+            // PromptEncoder._embed_points
+            auto * pt_embd  = sam_prompt_encode_pe_encoding(enc, ctx0, gf, inp);
 
-    // _embed_points
-    // no pad
-    {
-        auto * cur  = sam_prompt_encode_pe_encoding(enc, ctx0, gf, inp);
+            // overwrite label == -1 with not_a_point_embed.weight
+            // ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/prompt_encoder.py#L86
+            // TODO: extend for multiple points
+            auto * pt_embd_not = ggml_view_2d(ctx0, pt_embd, pt_embd->ne[0], 1, pt_embd->nb[1], pt_embd->nb[1]);
+            ggml_build_forward_expand(gf, ggml_cpy(ctx0, enc.not_a_pt_embd_w, pt_embd_not));
 
-        // overwrite label == -1 with not_a_point_embed.weight
-        // ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/prompt_encoder.py#L86
-        // TODO: extend for multiple points
-        ggml_build_forward_expand(gf, ggml_cpy(ctx0, enc.not_a_pt_embd_w, ggml_view_2d(ctx0, cur, cur->ne[0], 1, cur->nb[1], cur->nb[1])));
+            // add point_embeddings[1] to label == 1
+            // ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/prompt_encoder.py#L90
+            auto * pt_embd1 = ggml_view_2d(ctx0, pt_embd, pt_embd->ne[0], 1, pt_embd->nb[1], 0);
+            ggml_build_forward_expand(gf,  ggml_add_inplace(ctx0, pt_embd1, enc.pt_embd[1]));
 
-        // add point_embeddings[1] to label == 1
-        // ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/prompt_encoder.py#L90
-        struct ggml_tensor * v = ggml_view_2d(ctx0, cur, cur->ne[0], 1, cur->nb[1], 0);
-        ggml_build_forward_expand(gf, ggml_cpy(ctx0, ggml_add_inplace(ctx0, v, enc.pt_embd[1]), v));
+            return pt_embd;
+        } break;
+        case SAM_PROMPT_TYPE_BOX: {
+            // PromptEncoder._embed_boxes
+            auto * corner_embd = sam_prompt_encode_pe_encoding(enc, ctx0, gf, inp);
 
-        embd_prompt_sparse = cur;
+            // corner_embd[:, 0, :] += self.point_embeddings[2].weight
+            // corner_embd[:, 1, :] += self.point_embeddings[3].weight
+            auto * corner0 = ggml_view_2d(
+                ctx0, corner_embd, corner_embd->ne[0], 1, corner_embd->nb[1], 0);
+            auto * corner1 = ggml_view_2d(
+                ctx0, corner_embd, corner_embd->ne[0], 1, corner_embd->nb[1], corner_embd->nb[1]);
+            
+            ggml_build_forward_expand(gf, ggml_add_inplace(ctx0, corner0, enc.pt_embd[2]));
+            ggml_build_forward_expand(gf, ggml_add_inplace(ctx0, corner1, enc.pt_embd[3]));
 
-    }
+            return corner_embd;
+        } break;
+        }
+    }();
+
     ggml_build_forward_expand(gf, embd_prompt_sparse);
 
     struct ggml_tensor * embd_prompt_dense = ggml_repeat(ctx0,
@@ -1970,12 +1986,13 @@ bool sam_write_masks(const sam_hparams& hparams, int nx, int ny, const sam_state
     return true;
 }
 
+
 struct ggml_cgraph  * sam_build_fast_graph(
         const sam_model     & model,
                   sam_state & state,
                         int   nx,
                         int   ny,
-                  sam_point   point) {
+                  sam_prompt   prompt) {
 
     struct ggml_init_params ggml_params = {
         /*.mem_size   =*/ state.buf_compute_fast.size(),
@@ -1986,9 +2003,9 @@ struct ggml_cgraph  * sam_build_fast_graph(
     struct ggml_context * ctx0   = ggml_init(ggml_params);
     struct ggml_cgraph  * gf     = ggml_new_graph(ctx0);
 
-    prompt_encoder_result enc_res = sam_encode_prompt(model, ctx0, gf, state);
+    prompt_encoder_result enc_res = sam_encode_prompt(model, ctx0, gf, state, prompt);
     if (!enc_res.embd_prompt_sparse || !enc_res.embd_prompt_dense) {
-        fprintf(stderr, "%s: failed to encode prompt (%f, %f)\n", __func__, point.x, point.y);
+        fprintf(stderr, "%s: failed to encode prompt\n", __func__);
         return {};
     }
 
@@ -2007,33 +2024,40 @@ struct ggml_cgraph  * sam_build_fast_graph(
 
     ggml_gallocr_alloc_graph(state.allocr, gf);
 
-    // from sam_encode_prompt
+    struct ggml_tensor * inp = ggml_graph_get_tensor(gf, "prompt_input");
+    auto * data = (float *) inp->data;
+
+    // Transform prompt (point or box)
     {
-        // transform points
-        // ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/automatic_mask_generator.py#L276
-        {
-            const int nmax = std::max(nx, ny);
+        // https://github.com/facebookresearch/segment-anything/blob/dca509fe793f601edb92606367a655c15ac00fdf/segment_anything/utils/transforms.py#L33
+        // The point scaling here is greatly simplified but mathematically equivalent.
+        const auto scale = 1.0F / std::max(nx, ny);
 
-            const float scale = model.hparams.n_img_size() / (float) nmax;
+        switch (prompt.prompt_type) {
+        case SAM_PROMPT_TYPE_POINT: {
+            const auto & pt = prompt.pt;
 
-            const int nx_new = int(nx*scale + 0.5f);
-            const int ny_new = int(ny*scale + 0.5f);
+            // set the input by converting the [0, 1] coordinates to [-1, 1]
+            data[0] = 2.0f*pt.x*scale - 1.0f;
+            data[1] = 2.0f*pt.y*scale - 1.0f;
 
-            point.x = point.x*(float(nx_new)/nx) + 0.5f;
-            point.y = point.y*(float(ny_new)/ny) + 0.5f;
+            // padding
+            // ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/prompt_encoder.py#L81-L85
+            data[2] = 2.0f*(0.0f) - 1.0f;
+            data[3] = 2.0f*(0.0f) - 1.0f;
+        } break;
+        case SAM_PROMPT_TYPE_BOX: {
+            const auto & box = prompt.box;
+
+            data[0] = 2.0f*box.x1*scale - 1.0f;
+            data[1] = 2.0f*box.y1*scale - 1.0f;
+            data[2] = 2.0f*box.x2*scale - 1.0f;
+            data[3] = 2.0f*box.y2*scale - 1.0f;
+
+            fprintf(stderr, "Transformed box: (%f, %f, %f, %f)\n", data[0],data[1],data[2],data[3]);
+
+        } break;
         }
-
-        struct ggml_tensor * inp = ggml_graph_get_tensor(gf, "prompt_input");
-        // set the input by converting the [0, 1] coordinates to [-1, 1]
-        float * data = (float *) inp->data;
-
-        data[0] = 2.0f*(point.x / model.hparams.n_img_size()) - 1.0f;
-        data[1] = 2.0f*(point.y / model.hparams.n_img_size()) - 1.0f;
-
-        // padding
-        // ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/prompt_encoder.py#L81-L85
-        data[2] = 2.0f*(0.0f) - 1.0f;
-        data[3] = 2.0f*(0.0f) - 1.0f;
     }
 
     // from sam_fill_dense_pe
@@ -2087,11 +2111,15 @@ void sam_print_usage(int argc, char ** argv, const sam_params & params) {
     fprintf(stderr, "                        point to be used as prompt for SAM (default: %f,%f). Must be in a format FLOAT,FLOAT \n", params.prompt.pt.x, params.prompt.pt.y);
     fprintf(stderr, "  -b [x1,y1,x2,y2], --box-prompt\n");
     fprintf(stderr, "                        box to be used as prompt for SAM (default: %f,%f,%f,%f). Must be in a format FLOAT,FLOAT,FLOAT,FLOAT \n", 
-        params.prompt.bbox.x1, params.prompt.bbox.y1, params.prompt.bbox.x2, params.prompt.bbox.y2);
+        params.prompt.box.x1, params.prompt.box.y1, params.prompt.box.x2, params.prompt.box.y2);
     fprintf(stderr, "\n");
 }
 
 bool sam_params_parse(int argc, char ** argv, sam_params & params) {
+
+    bool use_point_prompt = false;
+    bool use_box_prompt = false;
+
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
 
@@ -2119,6 +2147,7 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
             params.eps_decoder_transformer = std::stof(argv[++i]);
         } else if (arg == "-p" || arg == "--point-prompt") {
             // TODO multiple points per model invocation
+            use_point_prompt = true;
             char* point = argv[++i];
 
             char* coord = strtok(point, ",");
@@ -2135,6 +2164,7 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
             }
             params.prompt.pt.y = std::stof(coord);
         } else if (arg == "-b" || arg == "--box-prompt") {
+            use_box_prompt = true;
             char *box_prompt = argv[++i];
             float box_vals[4];
 
@@ -2154,10 +2184,10 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
                 box_vals[j] = std::stof(val);
             }
 
-            params.prompt.bbox.x1 = box_vals[0];
-            params.prompt.bbox.y1 = box_vals[1];
-            params.prompt.bbox.x2 = box_vals[2];
-            params.prompt.bbox.y2 = box_vals[3];
+            params.prompt.box.x1 = box_vals[0];
+            params.prompt.box.y1 = box_vals[1];
+            params.prompt.box.x2 = box_vals[2];
+            params.prompt.box.y2 = box_vals[3];
         } else if (arg == "-h" || arg == "--help") {
             sam_print_usage(argc, argv, params);
             exit(0);
@@ -2166,6 +2196,16 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
             sam_print_usage(argc, argv, params);
             exit(0);
         }
+    }
+
+    if (use_box_prompt && use_point_prompt) {
+        fprintf(stderr, "Error: use either point or box prompt, not both.\n");
+        exit(1);
+    }
+
+    params.prompt.prompt_type = SAM_PROMPT_TYPE_POINT;
+    if (use_box_prompt) {
+        params.prompt.prompt_type = SAM_PROMPT_TYPE_BOX;
     }
 
     return true;
@@ -2264,10 +2304,20 @@ int main(int argc, char ** argv) {
         state.allocr = ggml_gallocr_new(ggml_backend_cpu_buffer_type());
 
         // TODO: more varied prompts
-        fprintf(stderr, "Point prompt: (%f, %f)\n", params.prompt.pt.x, params.prompt.pt.y);
-        fprintf(stderr, "Box prompt: (%f, %f, %f, %f)\n", params.prompt.bbox.x1, params.prompt.bbox.y1, params.prompt.bbox.x2, params.prompt.bbox.y2);
+        switch (params.prompt.prompt_type) {
+            case SAM_PROMPT_TYPE_POINT:
+                fprintf(stderr, "Using point prompt: (%f, %f)\n", params.prompt.pt.x, params.prompt.pt.y);
+                break;
+            case SAM_PROMPT_TYPE_BOX:
+                fprintf(stderr, "Using box prompt: (%f, %f, %f, %f)\n", 
+                    params.prompt.box.x1, 
+                    params.prompt.box.y1, 
+                    params.prompt.box.x2, 
+                    params.prompt.box.y2);
+                break;
+        }
 
-        struct ggml_cgraph  * gf = sam_build_fast_graph(model, state, img0.nx, img0.ny, params.prompt.pt);
+        struct ggml_cgraph  * gf = sam_build_fast_graph(model, state, img0.nx, img0.ny, params.prompt);
         if (!gf) {
             fprintf(stderr, "%s: failed to build fast graph\n", __func__);
             return 1;
