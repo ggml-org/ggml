@@ -329,6 +329,7 @@ struct sam_params {
     float   eps_decoder_transformer   = 1e-5f;
 
     sam_prompt prompt;
+    bool multimask_output = true;
 };
 
 void print_t_f32(const char* title, struct ggml_tensor * t, int n = 10) {
@@ -1602,7 +1603,8 @@ bool sam_decode_mask(
                  struct ggml_tensor * pe_img,
                 struct ggml_context * ctx0,
                 struct ggml_cgraph  * gf,
-                          sam_state & state) {
+                          sam_state & state,
+                         const bool   multimask_output) {
 
     const auto & hparams = model.hparams;
     const auto & dec = model.dec;
@@ -1814,10 +1816,19 @@ bool sam_decode_mask(
 
     // Select the correct mask or masks for output
     // ref: https://github.com/facebookresearch/segment-anything/blob/6fdee8f2727f4506cfbbe553e23b895e27956588/segment_anything/modeling/mask_decoder.py#L101
-    iou_pred = ggml_cpy(state.ctx, ggml_view_1d(ctx0, iou_pred, iou_pred->ne[0] - 1, iou_pred->nb[0]), state.iou_predictions);
-    masks = ggml_view_4d(ctx0, masks, masks->ne[0], masks->ne[1], masks->ne[2] - 1, masks->ne[3],
-                                      masks->nb[1], masks->nb[2], masks->nb[3], masks->nb[2] /* offset*/);
-    masks = ggml_cpy(state.ctx, masks, state.low_res_masks);
+    if (multimask_output) {
+        iou_pred = ggml_cpy(state.ctx, ggml_view_1d(ctx0, iou_pred, iou_pred->ne[0] - 1, iou_pred->nb[0]), state.iou_predictions);
+        masks = ggml_view_4d(ctx0, masks, masks->ne[0], masks->ne[1], masks->ne[2] - 1, masks->ne[3],
+                                        masks->nb[1], masks->nb[2], masks->nb[3], masks->nb[2] /* offset*/);
+        masks = ggml_cpy(state.ctx, masks, state.low_res_masks);
+    } else {
+        iou_pred = ggml_cpy(state.ctx, ggml_view_1d(ctx0, iou_pred, 1, 0), ggml_view_1d(ctx0, state.iou_predictions, 1, 0));
+        masks = ggml_view_4d(ctx0, masks, masks->ne[0], masks->ne[1], 1, masks->ne[3],
+                                        masks->nb[1], masks->nb[2], masks->nb[3], 0);
+        auto * low_res_mask = ggml_view_4d(ctx0, state.low_res_masks, masks->ne[0], masks->ne[1], 1, masks->ne[3],
+                                        masks->nb[1], masks->nb[2], masks->nb[3], 0);
+        masks = ggml_cpy(state.ctx, masks, low_res_mask);
+    }
 
     ggml_build_forward_expand(gf, masks);
     ggml_build_forward_expand(gf, iou_pred);
@@ -1828,7 +1839,7 @@ bool sam_decode_mask(
     return true;
 }
 
-bool sam_write_masks(const sam_hparams& hparams, int nx, int ny, const sam_state & state, const std::string & fname) {
+bool sam_write_masks(const sam_hparams& hparams, int nx, int ny, const sam_state & state, const std::string & fname, const bool multimask_output) {
     if (state.low_res_masks->ne[2] == 0) return true;
     if (state.low_res_masks->ne[2] != state.iou_predictions->ne[0]) {
         printf("Error: number of masks (%d) does not match number of iou predictions (%d)\n", (int)state.low_res_masks->ne[2], (int)state.iou_predictions->ne[0]);
@@ -1844,7 +1855,7 @@ bool sam_write_masks(const sam_hparams& hparams, int nx, int ny, const sam_state
 
     const int ne0 = state.low_res_masks->ne[0];
     const int ne1 = state.low_res_masks->ne[1];
-    const int ne2 = state.low_res_masks->ne[2];
+    const int ne2 = multimask_output ? state.low_res_masks->ne[2] : 1;
 
     // Remove padding and upscale masks to the original image size.
     // ref: https://github.com/facebookresearch/segment-anything/blob/efeab7296ab579d4a261e554eca80faf6b33924a/segment_anything/modeling/sam.py#L140
@@ -1975,7 +1986,7 @@ bool sam_write_masks(const sam_hparams& hparams, int nx, int ny, const sam_state
         printf("Mask %d: iou = %f, stability_score = %f, bbox (%d, %d), (%d, %d)\n",
                 i, iou_data[i], stability_score, min_ix, max_ix, min_iy, max_iy);
 
-        std::string filename = fname + std::to_string(i) + ".png";
+        const std::string filename = multimask_output ? fname + std::to_string(i) + ".png" : fname + ".png";
         if (!stbi_write_png(filename.c_str(), res.nx, res.ny, 1, res.data.data(), res.nx)) {
             printf("%s: failed to write mask %s\n", __func__, filename.c_str());
             return false;
@@ -1992,7 +2003,8 @@ struct ggml_cgraph  * sam_build_fast_graph(
                sam_state & state,
                const int   nx,
                const int   ny,
-        const sam_prompt & prompt) {
+        const sam_prompt & prompt,
+              const bool   multimask_output) {
 
     struct ggml_init_params ggml_params = {
         /*.mem_size   =*/ state.buf_compute_fast.size(),
@@ -2015,7 +2027,7 @@ struct ggml_cgraph  * sam_build_fast_graph(
         return {};
     }
 
-    if (!sam_decode_mask(model, enc_res, pe_img_dense, ctx0, gf, state)) {
+    if (!sam_decode_mask(model, enc_res, pe_img_dense, ctx0, gf, state, multimask_output)) {
          fprintf(stderr, "%s: failed to decode mask\n", __func__);
          return {};
     }
@@ -2093,6 +2105,8 @@ void sam_print_usage(int argc, char ** argv, const sam_params & params) {
     fprintf(stderr, "                        input file (default: %s)\n", params.fname_inp.c_str());
     fprintf(stderr, "  -o FNAME, --out FNAME\n");
     fprintf(stderr, "                        mask file name prefix (default: %s)\n", params.fname_out.c_str());
+    fprintf(stderr, "  -sm, --single-mask\n");
+    fprintf(stderr, "                        single mask output (default multi mask output)\n");
     fprintf(stderr, "SAM hyperparameters:\n");
     fprintf(stderr, "  -mt FLOAT, --mask-threshold\n");
     fprintf(stderr, "                        mask threshold (default: %f)\n", params.mask_threshold);
@@ -2133,6 +2147,8 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
             params.fname_inp = argv[++i];
         } else if (arg == "-o" || arg == "--out") {
             params.fname_out = argv[++i];
+        } else if (arg == "-sm" || arg == "--single-mask") {
+            params.multimask_output = false;
         } else if (arg == "-mt" || arg == "--mask-threshold") {
             params.mask_threshold = std::stof(argv[++i]);
         } else if (arg == "-it" || arg == "--iou-threshold") {
@@ -2318,7 +2334,7 @@ int main(int argc, char ** argv) {
             break;
         }
 
-        struct ggml_cgraph * gf = sam_build_fast_graph(model, state, img0.nx, img0.ny, params.prompt);
+        struct ggml_cgraph * gf = sam_build_fast_graph(model, state, img0.nx, img0.ny, params.prompt, params.multimask_output);
         if (!gf) {
             fprintf(stderr, "%s: failed to build fast graph\n", __func__);
             return 1;
@@ -2332,7 +2348,7 @@ int main(int argc, char ** argv) {
         state.allocr = NULL;
     }
 
-    if (!sam_write_masks(model.hparams, img0.nx, img0.ny, state, params.fname_out)) {
+    if (!sam_write_masks(model.hparams, img0.nx, img0.ny, state, params.fname_out, params.multimask_output)) {
         fprintf(stderr, "%s: failed to write masks\n", __func__);
         return 1;
     }
