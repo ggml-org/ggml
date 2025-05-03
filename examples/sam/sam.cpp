@@ -1450,7 +1450,7 @@ prompt_encoder_result sam_encode_prompt(
         struct ggml_context * ctx0,
         struct ggml_cgraph  * gf,
                   sam_state & state,
-                 sam_prompt & prompt) {
+           const sam_prompt & prompt) {
 
     const auto & hparams = model.hparams;
     const auto & enc = model.enc_prompt;
@@ -1988,11 +1988,11 @@ bool sam_write_masks(const sam_hparams& hparams, int nx, int ny, const sam_state
 
 
 struct ggml_cgraph  * sam_build_fast_graph(
-        const sam_model     & model,
-                  sam_state & state,
-                        int   nx,
-                        int   ny,
-                  sam_prompt   prompt) {
+        const sam_model  & model,
+               sam_state & state,
+               const int   nx,
+               const int   ny,
+        const sam_prompt & prompt) {
 
     struct ggml_init_params ggml_params = {
         /*.mem_size   =*/ state.buf_compute_fast.size(),
