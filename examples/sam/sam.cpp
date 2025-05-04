@@ -1420,7 +1420,7 @@ struct ggml_tensor * sam_prompt_encode_pe_encoding(
         struct ggml_cgraph       * gf, 
         struct ggml_tensor       * coords) {
 
-    auto *cur = ggml_mul_mat(ctx0, ggml_cont(ctx0, ggml_transpose(ctx0, enc.pe)), coords);
+    auto * cur = ggml_mul_mat(ctx0, ggml_cont(ctx0, ggml_transpose(ctx0, enc.pe)), coords);
     cur = ggml_scale(ctx0, cur, float(2.0*M_PI));
 
     // concat
