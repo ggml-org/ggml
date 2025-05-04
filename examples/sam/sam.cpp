@@ -1417,7 +1417,7 @@ struct prompt_encoder_result {
 struct ggml_tensor * sam_prompt_encode_pe_encoding(
         const sam_encoder_prompt & enc,
         struct ggml_context      * ctx0,
-        struct ggml_cgraph       * gf, 
+        struct ggml_cgraph       * gf,
         struct ggml_tensor       * coords) {
 
     auto * cur = ggml_mul_mat(ctx0, ggml_cont(ctx0, ggml_transpose(ctx0, enc.pe)), coords);
@@ -1489,7 +1489,7 @@ prompt_encoder_result sam_encode_prompt(
                 ctx0, corner_embd, corner_embd->ne[0], 1, corner_embd->nb[1], 0);
             auto * corner1 = ggml_view_2d(
                 ctx0, corner_embd, corner_embd->ne[0], 1, corner_embd->nb[1], corner_embd->nb[1]);
-            
+
             ggml_build_forward_expand(gf, ggml_add_inplace(ctx0, corner0, enc.pt_embd[2]));
             ggml_build_forward_expand(gf, ggml_add_inplace(ctx0, corner1, enc.pt_embd[3]));
 
@@ -2065,9 +2065,6 @@ struct ggml_cgraph  * sam_build_fast_graph(
             data[1] = 2.0f*box.y1*scale - 1.0f;
             data[2] = 2.0f*box.x2*scale - 1.0f;
             data[3] = 2.0f*box.y2*scale - 1.0f;
-
-            fprintf(stderr, "Transformed box: (%f, %f, %f, %f)\n", data[0], data[1], data[2], data[3]);
-
         } break;
         }
     }
@@ -2124,7 +2121,7 @@ void sam_print_usage(int argc, char ** argv, const sam_params & params) {
     fprintf(stderr, "  -p [x,y], --point-prompt\n");
     fprintf(stderr, "                        point to be used as prompt for SAM (default: %f,%f). Must be in a format FLOAT,FLOAT \n", params.prompt.pt.x, params.prompt.pt.y);
     fprintf(stderr, "  -b [x1,y1,x2,y2], --box-prompt\n");
-    fprintf(stderr, "                        box to be used as prompt for SAM (default: %f,%f,%f,%f). Must be in a format FLOAT,FLOAT,FLOAT,FLOAT \n", 
+    fprintf(stderr, "                        box to be used as prompt for SAM (default: %f,%f,%f,%f). Must be in a format FLOAT,FLOAT,FLOAT,FLOAT \n",
         params.prompt.box.x1, params.prompt.box.y1, params.prompt.box.x2, params.prompt.box.y2);
     fprintf(stderr, "\n");
 }
@@ -2326,10 +2323,10 @@ int main(int argc, char ** argv) {
             fprintf(stderr, "Using point prompt: (%f, %f)\n", params.prompt.pt.x, params.prompt.pt.y);
             break;
         case SAM_PROMPT_TYPE_BOX:
-            fprintf(stderr, "Using box prompt: (%f, %f, %f, %f)\n", 
-                params.prompt.box.x1, 
-                params.prompt.box.y1, 
-                params.prompt.box.x2, 
+            fprintf(stderr, "Using box prompt: (%f, %f, %f, %f)\n",
+                params.prompt.box.x1,
+                params.prompt.box.y1,
+                params.prompt.box.x2,
                 params.prompt.box.y2);
             break;
         }
