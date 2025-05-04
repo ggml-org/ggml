@@ -2184,7 +2184,7 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
             char *box_prompt = argv[++i];
             float box_vals[4];
 
-            char* val = strtok(box_prompt, ",");
+            char * val = strtok(box_prompt, ",");
             if (!val) {
                 fprintf(stderr, "Error while parsing prompt!\n");
                 exit(1);
