@@ -2191,8 +2191,8 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
             }
             box_vals[0] = std::stof(val);
 
-            for (int j=1;j<4;++j) {
-                char* val = strtok(NULL, ",");
+            for (int j = 1; j < 4; ++j) {
+                char * val = strtok(NULL, ",");
                 if (!val) {
                     fprintf(stderr, "Error while parsing prompt!\n");
                     exit(1);
