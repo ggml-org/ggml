@@ -2181,7 +2181,7 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
             params.prompt.pt.y = std::stof(coord);
         } else if (arg == "-b" || arg == "--box-prompt") {
             use_box_prompt = true;
-            char *box_prompt = argv[++i];
+            char * box_prompt = argv[++i];
             float box_vals[4];
 
             char * val = strtok(box_prompt, ",");
