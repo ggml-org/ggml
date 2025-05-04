@@ -2066,7 +2066,7 @@ struct ggml_cgraph  * sam_build_fast_graph(
             data[2] = 2.0f*box.x2*scale - 1.0f;
             data[3] = 2.0f*box.y2*scale - 1.0f;
 
-            fprintf(stderr, "Transformed box: (%f, %f, %f, %f)\n", data[0],data[1],data[2],data[3]);
+            fprintf(stderr, "Transformed box: (%f, %f, %f, %f)\n", data[0], data[1], data[2], data[3]);
 
         } break;
         }
