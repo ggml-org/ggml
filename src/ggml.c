@@ -839,15 +839,15 @@ static const size_t GGML_OBJECT_SIZE = sizeof(struct ggml_object);
 //
 
 struct ggml_context {
-    size_t mem_size;
-    void * mem_buffer;
-    bool   mem_buffer_owned;
-    bool   no_alloc;
+    size_t mem_size;// Total size of the memory buffer allocated for this context.
+    void * mem_buffer;// Total size of the memory buffer allocated for this context.
+    bool   mem_buffer_owned;// Indicates if the memory buffer is owned by this context or not.
+    bool   no_alloc;// Indicates if the context should allocate memory or not.
 
-    int    n_objects;
+    int    n_objects;//Number of objects (e.g., tensors) currently allocated in this context.
 
-    struct ggml_object * objects_begin;
-    struct ggml_object * objects_end;
+    struct ggml_object * objects_begin;//pointer to the beginning of the list of objects
+    struct ggml_object * objects_end;//pointer to the end of the list of objects
 };
 
 struct ggml_context_container {
@@ -1254,7 +1254,8 @@ enum ggml_type ggml_ftype_to_ggml_type(enum ggml_ftype ftype) {
 }
 
 size_t ggml_tensor_overhead(void) {
-    return GGML_OBJECT_SIZE + GGML_TENSOR_SIZE;
+    //tensor overhead is the size of tensor struct + size of object struct， ggml_obj is used to describe the tensor/graph/buffer
+    return GGML_OBJECT_SIZE + GGML_TENSOR_SIZE; 
 }
 
 bool ggml_is_transposed(const struct ggml_tensor * tensor) {
@@ -1386,7 +1387,7 @@ struct ggml_context * ggml_init(struct ggml_init_params params) {
     if (is_first_call) {
         // initialize time system (required on Windows)
         ggml_time_init();
-
+        //if is first called, calculate the mapping from fp16 to f32 and store it in the table
         for (int i = 0; i < (1 << 16); ++i) {
             union {
                 uint16_t u16;
@@ -1400,7 +1401,7 @@ struct ggml_context * ggml_init(struct ggml_init_params params) {
 
     ggml_critical_section_end();
 
-    struct ggml_context * ctx = GGML_MALLOC(sizeof(struct ggml_context));
+    struct ggml_context * ctx = GGML_MALLOC(sizeof(struct ggml_context));//malloc for the context struct itself
 
     // allow to call ggml_init with 0 size
     if (params.mem_size == 0) {
@@ -1408,7 +1409,7 @@ struct ggml_context * ggml_init(struct ggml_init_params params) {
     }
 
     const size_t mem_size = params.mem_buffer ? params.mem_size : GGML_PAD(params.mem_size, GGML_MEM_ALIGN);
-
+    //allow initialize a context with a extern buffer, if no buffer is provided, malloc a buffer
     *ctx = (struct ggml_context) {
         /*.mem_size           =*/ mem_size,
         /*.mem_buffer         =*/ params.mem_buffer ? params.mem_buffer : ggml_aligned_malloc(mem_size),
@@ -1487,7 +1488,7 @@ static struct ggml_object * ggml_new_object(struct ggml_context * ctx, enum ggml
     // always insert objects at the end of the context's memory pool
     struct ggml_object * obj_cur = ctx->objects_end;
 
-    const size_t cur_offs = obj_cur == NULL ? 0 : obj_cur->offs;
+    const size_t cur_offs = obj_cur == NULL ? 0 : obj_cur->offs; // offs is the start, [cur_offs, cur_offs + cur_size) is the lastest object
     const size_t cur_size = obj_cur == NULL ? 0 : obj_cur->size;
     const size_t cur_end  = cur_offs + cur_size;
 
@@ -1496,7 +1497,7 @@ static struct ggml_object * ggml_new_object(struct ggml_context * ctx, enum ggml
 
     char * const mem_buffer = ctx->mem_buffer;
     struct ggml_object * const obj_new = (struct ggml_object *)(mem_buffer + cur_end);
-
+    //[cur_end, cur_end + GGML_OBJECT_SIZE) is the ggml_object( just a descriptor of the object )
     if (cur_end + size_needed + GGML_OBJECT_SIZE > ctx->mem_size) {
         GGML_LOG_WARN("%s: not enough space in the context's memory pool (needed %zu, available %zu)\n",
                 __func__, cur_end + size_needed + GGML_OBJECT_SIZE, ctx->mem_size);
@@ -1505,14 +1506,14 @@ static struct ggml_object * ggml_new_object(struct ggml_context * ctx, enum ggml
 #endif
         return NULL;
     }
-
+    // just assign value for the new object, the memory is prepared yet
     *obj_new = (struct ggml_object) {
         .offs = cur_end + GGML_OBJECT_SIZE,
         .size = size_needed,
         .next = NULL,
         .type = type,
     };
-
+    //[cur_end + GGML_OBJECT_SIZE, cur_end + GGML_OBJECT_SIZE + size_needed) is the actual memory of the object
     GGML_ASSERT_ALIGNED(mem_buffer + obj_new->offs);
 
     if (obj_cur != NULL) {
@@ -1546,14 +1547,14 @@ static struct ggml_tensor * ggml_new_tensor_impl(
         view_src   = view_src->view_src;
     }
 
-    size_t data_size = ggml_row_size(type, ne[0]);
-    for (int i = 1; i < n_dims; i++) {
+    size_t data_size = ggml_row_size(type, ne[0]);//ne[0] is the number of elements in the first dimension
+    for (int i = 1; i < n_dims; i++) { // first dimension multiple by each other dimension
         data_size *= ne[i];
     }
 
     GGML_ASSERT(view_src == NULL || data_size == 0 || data_size + view_offs <= ggml_nbytes(view_src));
 
-    void * data = view_src != NULL ? view_src->data : NULL;
+    void * data = view_src != NULL ? view_src->data : NULL; // handle virw_src, which is used to view another tensor
     if (data != NULL) {
         data = (char *) data + view_offs;
     }
