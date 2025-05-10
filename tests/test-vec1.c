@@ -305,6 +305,7 @@ static inline uint16_t fp16_ieee_from_fp32_value(float f) {
     return (sign >> 16) | (shl1_w > UINT32_C(0xFF000000) ? UINT16_C(0x7E00) : nonsign);
 }
 
+#if defined(__F16C__)
 void mul_mat_vec_f16_0(
     const uint16_t * src0,
     const uint16_t * src1,
@@ -459,6 +460,7 @@ void mul_mat_vec_f16_3(
         }
     }
 }
+#endif
 
 uint64_t get_time_us(void) {
     struct timeval tv;
@@ -535,6 +537,7 @@ int main(int argc, const char ** argv) {
             mul_mat_vec_f32_2(src0, src1, dst, N, M);
         }
 
+#if defined(__F16C__)
         if (method == 3) {
             mul_mat_vec_f16_0(src0_fp16, src1_fp16, dst, N, M);
         }
@@ -550,6 +553,12 @@ int main(int argc, const char ** argv) {
         if (method == 6) {
             mul_mat_vec_f16_3(src0_fp16, src1, dst, N, M);
         }
+#else
+        if (method >= 3) {
+            printf("f16c not available.\n");
+            return 1;
+        }
+#endif
     }
 
     for (int i = 0; i < N; i++) {
