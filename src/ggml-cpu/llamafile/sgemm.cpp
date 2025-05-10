@@ -56,6 +56,9 @@
 #include <atomic>
 #include <array>
 #include <type_traits>
+#if defined(_MSC_VER) && defined(__AVX512BF16__)
+#include <bit>
+#endif
 
 #ifdef _MSC_VER
 #define NOINLINE __declspec(noinline)
@@ -268,10 +271,18 @@ template <> inline __m512 load(const ggml_bf16_t *p) {
 
 #if defined(__AVX512BF16__)
 template <> inline __m512bh load(const ggml_bf16_t *p) {
+#if defined(_MSC_VER)
+    return std::bit_cast<__m512bh>(_mm512_loadu_ps((const float *)p));
+#else
     return (__m512bh)_mm512_loadu_ps((const float *)p);
+#endif
 }
 template <> inline __m256bh load(const ggml_bf16_t *p) {
+#if defined(_MSC_VER)
+    return std::bit_cast<__m256bh>(_mm256_loadu_ps((const float *)p));
+#else
     return (__m256bh)_mm256_loadu_ps((const float *)p);
+#endif
 }
 template <> inline __m512bh load(const float *p) {
     return _mm512_cvtne2ps_pbh(_mm512_loadu_ps(p + 16), _mm512_loadu_ps(p));
