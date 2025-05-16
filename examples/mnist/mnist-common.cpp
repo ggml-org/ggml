@@ -385,7 +385,10 @@ ggml_opt_result_t mnist_model_eval(mnist_model & model, ggml_opt_dataset_t datas
     ggml_opt_result_t result = ggml_opt_result_init();
 
     ggml_opt_params params = ggml_opt_default_params(model.backend_sched, GGML_OPT_LOSS_TYPE_CROSS_ENTROPY);
-    params.build_type = GGML_OPT_BUILD_TYPE_FORWARD;
+    params.ctx_compute = model.ctx_compute;
+    params.inputs      = model.images;
+    params.outputs     = model.logits;
+    params.build_type  = GGML_OPT_BUILD_TYPE_FORWARD;
     ggml_opt_context_t opt_ctx = ggml_opt_init(params);
 
     {
