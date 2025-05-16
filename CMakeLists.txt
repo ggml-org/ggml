@@ -46,8 +46,6 @@ option(GGML_BACKEND_DL   "ggml: build backends as dynamic libraries (requires BU
 if (MSVC)
     add_compile_options("$<$<COMPILE_LANGUAGE:C>:/utf-8>")
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/utf-8>")
-    add_compile_options("$<$<COMPILE_LANGUAGE:C>:/bigobj>")
-    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/bigobj>")
 endif()
 
 #
