@@ -1,4 +1,6 @@
 #include "ggml-threading.h"
+
+#include <cstdlib>
 #include <exception>
 #include <mutex>
 
@@ -12,19 +14,19 @@ void ggml_critical_section_end(void) {
     ggml_critical_section_mutex.unlock();
 }
 
+static std::terminate_handler previous_terminate_handler;
+
 GGML_NORETURN static void ggml_uncaught_exception() {
-    if (const std::exception_ptr e{std::current_exception()}) {
-        try {
-            std::rethrow_exception(e);
-        } catch (const std::exception & ex) {
-            ggml_abort("set_terminate", 0, "uncaught exception %s", ex.what());
-        } catch (...) {
-            ggml_abort("set_terminate", 0, "unknown exception");
-        }
+    ggml_print_backtrace();
+    if (previous_terminate_handler) {
+        previous_terminate_handler();
     }
-    ggml_abort("set_terminate", 0, "std::terminate called");
+    abort(); // unreachable unless previous_terminate_handler was nullptr
 }
 
 void ggml_uncaught_exception_init() {
+    const auto prev{std::get_terminate()};
+    GGML_ASSERT(prev != ggml_uncaught_exception);
+    previous_terminate_handler = prev;
     std::set_terminate(ggml_uncaught_exception);
 }
