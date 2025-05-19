@@ -9,6 +9,8 @@ extern "C" {
 GGML_API void ggml_critical_section_start(void);
 GGML_API void ggml_critical_section_end(void);
 
+void ggml_uncaught_exception_init(void);
+
 #ifdef __cplusplus
 }
 #endif
