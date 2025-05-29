@@ -74,3 +74,26 @@ jobs:
     - name: Test
       working-directory: ./build
       run: ctest --verbose --timeout 900
+
+  windows:
+    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' ||
+            github.event.inputs.run_type == 'full-ci' }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Configure
+        run: >
+          cmake -S . -B ./build -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_SHARED_LIBS=ON
+
+      - name: Build
+        run: |
+          cd ./build
+          msbuild ALL_BUILD.vcxproj -t:build -p:configuration=Release -p:platform=x64
