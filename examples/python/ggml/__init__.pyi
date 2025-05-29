@@ -934,14 +934,8 @@ class lib:
         GGML_API void ggml_graph_dump_dot(const struct ggml_cgraph * gb, const struct ggml_cgraph * gf, const char * filename);
     """
     ...
-  def ggml_graph_export(cgraph: ffi.CData, fname: ffi.CData) -> None:
-    """    GGML_API void               ggml_graph_export(const struct ggml_cgraph * cgraph, const char * fname);"""
-    ...
   def ggml_graph_get_tensor(cgraph: ffi.CData, name: ffi.CData) -> ffi.CData:
     """    GGML_API struct ggml_tensor * ggml_graph_get_tensor(struct ggml_cgraph * cgraph, const char * name);"""
-    ...
-  def ggml_graph_import(fname: ffi.CData, ctx_data: ffi.CData, ctx_eval: ffi.CData) -> ffi.CData:
-    """    GGML_API struct ggml_cgraph ggml_graph_import(const char * fname, struct ggml_context ** ctx_data, struct ggml_context ** ctx_eval);"""
     ...
   def ggml_graph_overhead() -> int:
     """    GGML_API size_t ggml_graph_overhead(void);"""
