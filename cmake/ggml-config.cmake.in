@@ -7,6 +7,8 @@ set_and_check(GGML_INCLUDE_DIR "@PACKAGE_GGML_INCLUDE_INSTALL_DIR@")
 set_and_check(GGML_LIB_DIR "@PACKAGE_GGML_LIB_INSTALL_DIR@")
 #set_and_check(GGML_BIN_DIR "@PACKAGE_GGML_BIN_INSTALL_DIR@")
 
+if(NOT TARGET ggml::ggml)
+
 find_package(Threads REQUIRED)
 
 find_library(GGML_LIBRARY ggml
@@ -148,5 +150,7 @@ add_library(ggml::all INTERFACE IMPORTED)
 set_target_properties(ggml::all
     PROPERTIES
         INTERFACE_LINK_LIBRARIES "${_ggml_all_targets}")
+
+endif() # TARGET ggml::ggml
 
 check_required_components(ggml)
