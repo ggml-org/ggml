@@ -77,6 +77,11 @@ if (NOT GGML_SHARED_LIB)
                     ${FOUNDATION_LIBRARY} ${METAL_FRAMEWORK} ${METALKIT_FRAMEWORK})
     endif()
 
+    if (GGML_OPENCL)
+        find_package(OpenCL REQUIRED)
+        list(APPEND GGML_OPENCL_INTERFACE_LINK_LIBRARIES $<LINK_ONLY:OpenCL::OpenCL>)
+    endif()
+
     if (GGML_VULKAN)
         find_package(Vulkan REQUIRED)
         list(APPEND GGML_VULKAN_INTERFACE_LINK_LIBRARIES Vulkan::Vulkan)
