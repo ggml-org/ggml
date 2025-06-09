@@ -417,6 +417,7 @@ struct vk_device_struct {
     vk_pipeline pipeline_cos_f32;
     vk_pipeline pipeline_clamp_f32;
     vk_pipeline pipeline_pad_f32;
+    vk_pipeline pipeline_roll_f32;
     vk_pipeline pipeline_repeat_f32, pipeline_repeat_back_f32;
     vk_pipeline pipeline_cpy_f32_f32, pipeline_cpy_f32_f16, pipeline_cpy_f16_f16, pipeline_cpy_f16_f32, pipeline_cpy_f32_bf16;
     vk_pipeline pipeline_contig_cpy_f32_f32, pipeline_contig_cpy_f32_f16, pipeline_contig_cpy_f16_f16, pipeline_contig_cpy_f16_f32, pipeline_contig_cpy_f32_bf16;
@@ -2752,6 +2753,8 @@ static void ggml_vk_load_shaders(vk_device& device) {
     ggml_vk_create_pipeline(device, device->pipeline_clamp_f32, "clamp_f32", clamp_f32_len, clamp_f32_data, "main", 2, sizeof(vk_op_unary_push_constants), {512, 1, 1}, {}, 1);
 
     ggml_vk_create_pipeline(device, device->pipeline_pad_f32, "pad_f32", pad_f32_len, pad_f32_data, "main", 2, sizeof(vk_op_unary_push_constants), {512, 1, 1}, {}, 1);
+
+    ggml_vk_create_pipeline(device, device->pipeline_roll_f32, "roll_f32", roll_f32_len, roll_f32_data, "main", 2, sizeof(vk_op_unary_push_constants), {512, 1, 1}, {}, 1);
 
     ggml_vk_create_pipeline(device, device->pipeline_repeat_f32, "repeat_f32", repeat_f32_len, repeat_f32_data, "main", 2, sizeof(vk_op_unary_push_constants), {512, 1, 1}, {}, 1);
     ggml_vk_create_pipeline(device, device->pipeline_repeat_back_f32, "repeat_back_f32", repeat_back_f32_len, repeat_back_f32_data, "main", 2, sizeof(vk_op_unary_push_constants), {512, 1, 1}, {}, 1);
@@ -6425,6 +6428,11 @@ static vk_pipeline ggml_vk_op_get_pipeline(ggml_backend_vk_context * ctx, const 
             return ctx->device->pipeline_pad_f32;
         }
         return nullptr;
+    case GGML_OP_ROLL:
+        if (src0->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
+            return ctx->device->pipeline_roll_f32;
+        }
+        return nullptr;
     case GGML_OP_REPEAT:
         if (ggml_type_size(src0->type) == sizeof(float) && ggml_type_size(dst->type) == sizeof(float)) {
             return ctx->device->pipeline_repeat_f32;
@@ -6965,6 +6973,7 @@ static void ggml_vk_op_f32(ggml_backend_vk_context * ctx, vk_context& subctx, co
     case GGML_OP_COS:
     case GGML_OP_CLAMP:
     case GGML_OP_PAD:
+    case GGML_OP_ROLL:
     case GGML_OP_REPEAT:
     case GGML_OP_REPEAT_BACK:
     case GGML_OP_CPY:
@@ -7499,6 +7508,38 @@ static void ggml_vk_pad(ggml_backend_vk_context * ctx, vk_context& subctx, const
         0.0f, 0.0f,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     }, dryrun);
+}
+
+static void ggml_vk_roll(ggml_backend_vk_context * ctx, vk_context& subctx, const ggml_tensor * src0, ggml_tensor * dst, bool dryrun = false) {
+    const int32_t s0 = ggml_get_op_params_i32(dst, 0);
+    const int32_t s1 = ggml_get_op_params_i32(dst, 1);
+    const int32_t s2 = ggml_get_op_params_i32(dst, 2);
+    const int32_t s3 = ggml_get_op_params_i32(dst, 3);
+    const uint32_t s01_packed = ((s0 + 0x8000) << 16) | (s1 + 0x8000);
+    const uint32_t s23_packed = ((s2 + 0x8000) << 16) | (s3 + 0x8000);
+
+    vk_op_unary_push_constants p{};
+    p.ne = ggml_nelements(dst);
+    p.ne00 = src0->ne[0];
+    p.ne01 = src0->ne[1];
+    p.ne02 = src0->ne[2];
+    p.ne03 = src0->ne[3];
+    p.nb00 = src0->nb[0] / ggml_type_size(src0->type);
+    p.nb01 = src0->nb[1] / ggml_type_size(src0->type);
+    p.nb02 = src0->nb[2] / ggml_type_size(src0->type);
+    p.nb03 = src0->nb[3] / ggml_type_size(src0->type);
+    p.ne10 = dst->ne[0];
+    p.ne11 = dst->ne[1];
+    p.ne12 = dst->ne[2];
+    p.ne13 = dst->ne[3];
+    p.nb10 = dst->nb[0] / ggml_type_size(dst->type);
+    p.nb11 = dst->nb[1] / ggml_type_size(dst->type);
+    p.nb12 = dst->nb[2] / ggml_type_size(dst->type);
+    p.nb13 = dst->nb[3] / ggml_type_size(dst->type);
+    memcpy(&p.param1, &s01_packed, sizeof(float));
+    memcpy(&p.param2, &s23_packed, sizeof(float));
+
+    ggml_vk_op_f32(ctx, subctx, src0, nullptr, nullptr, dst, GGML_OP_ROLL, std::move(p), dryrun);
 }
 
 static void ggml_vk_repeat(ggml_backend_vk_context * ctx, vk_context& subctx, const ggml_tensor * src0, ggml_tensor * dst, bool dryrun = false) {
@@ -8862,6 +8903,7 @@ static bool ggml_vk_build_graph(ggml_backend_vk_context * ctx, ggml_cgraph * cgr
     case GGML_OP_COS:
     case GGML_OP_CLAMP:
     case GGML_OP_PAD:
+    case GGML_OP_ROLL:
     case GGML_OP_CPY:
     case GGML_OP_CONT:
     case GGML_OP_DUP:
@@ -9030,6 +9072,10 @@ static bool ggml_vk_build_graph(ggml_backend_vk_context * ctx, ggml_cgraph * cgr
         break;
     case GGML_OP_PAD:
         ggml_vk_pad(ctx, compute_ctx, src0, node, dryrun);
+
+        break;
+    case GGML_OP_ROLL:
+        ggml_vk_roll(ctx, compute_ctx, src0, node, dryrun);
 
         break;
     case GGML_OP_CPY:
@@ -9247,6 +9293,7 @@ static bool ggml_vk_compute_forward(ggml_backend_vk_context * ctx, ggml_tensor *
     case GGML_OP_COS:
     case GGML_OP_CLAMP:
     case GGML_OP_PAD:
+    case GGML_OP_ROLL:
     case GGML_OP_CPY:
     case GGML_OP_CONT:
     case GGML_OP_DUP:
@@ -10368,6 +10415,7 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
         case GGML_OP_CONCAT:
         case GGML_OP_SCALE:
         case GGML_OP_PAD:
+        case GGML_OP_ROLL:
         case GGML_OP_DIAG_MASK_INF:
         case GGML_OP_SOFT_MAX:
         case GGML_OP_SOFT_MAX_BACK:
