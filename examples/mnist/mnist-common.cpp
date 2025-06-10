@@ -227,7 +227,8 @@ mnist_model mnist_model_init_from_file(const std::string & fname, const std::str
     // The space in ctx_gguf exactly fits the model weights,
     // the images (which also need to be statically allocated) need to be put in a different context.
 
-    model.images = ggml_new_tensor_2d(model.ctx_static, GGML_TYPE_F32, MNIST_NINPUT, MNIST_NBATCH_PHYSICAL);
+    model.images = ggml_new_tensor_2d(model.ctx_static, GGML_TYPE_F32, MNIST_NINPUT, nbatch_physical);
+
     ggml_set_name(model.images, "images");
     ggml_set_input(model.images);
 
@@ -458,7 +459,11 @@ int wasm_eval(uint8_t * digitPtr) {
 
     ggml_opt_dataset_t dataset = ggml_opt_dataset_init(GGML_TYPE_F32, GGML_TYPE_F32, MNIST_NINPUT, MNIST_NCLASSES, 1, 1);
     struct ggml_tensor * data = ggml_opt_dataset_data(dataset);
-    memcpy(data->data, digitPtr, ggml_nbytes(data));
+
+    float * buf = ggml_get_data_f32(data);
+    for (int i = 0; i < MNIST_NINPUT; ++i) {
+        buf[i] = digitPtr[i] / 255.0f;
+    }
     ggml_set_zero(ggml_opt_dataset_labels(dataset)); // The labels are not needed.
 
     mnist_model model = mnist_model_init_from_file("mnist-f32.gguf", "CPU", /*nbatch_logical =*/ 1, /*nbatch_physical =*/ 1);
