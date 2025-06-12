@@ -18,7 +18,7 @@ if (NOT GGML_SHARED_LIB)
         list(APPEND GGML_CPU_INTERFACE_LINK_LIBRARIES ${ACCELERATE_FRAMEWORK})
     endif()
 
-    if (GGML_OPENMP)
+    if (GGML_OPENMP_ENABLED)
         find_dependency(OpenMP)
         list(APPEND GGML_CPU_INTERFACE_LINK_LIBRARIES OpenMP::OpenMP_C OpenMP::OpenMP_CXX)
     endif()
