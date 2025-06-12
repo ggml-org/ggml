@@ -74,8 +74,6 @@ while read c; do
         ggml/src/ggml-vulkan/* \
         ggml/include/ggml*.h \
         ggml/include/gguf*.h \
-        examples/common.h \
-        examples/common.cpp \
         examples/common-ggml.h \
         examples/common-ggml.cpp \
         LICENSE \

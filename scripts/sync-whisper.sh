@@ -24,8 +24,6 @@ cp -rpv ../whisper.cpp/ggml/src/ggml-vulkan/*    src/ggml-vulkan/
 cp -rpv ../whisper.cpp/ggml/include/ggml*.h include/
 cp -rpv ../whisper.cpp/ggml/include/gguf*.h include/
 
-cp -rpv ../whisper.cpp/examples/common.h        examples/common.h
-cp -rpv ../whisper.cpp/examples/common.cpp      examples/common.cpp
 cp -rpv ../whisper.cpp/examples/common-ggml.h   examples/common-ggml.h
 cp -rpv ../whisper.cpp/examples/common-ggml.cpp examples/common-ggml.cpp
 
