@@ -417,7 +417,7 @@ if (MSVC)
 
     if (GGML_BUILD_TESTS)
         disable_msvc_warnings(test-mul-mat)
-        disable_msvc_warnings(text-arange)
+        disable_msvc_warnings(test-arange)
         disable_msvc_warnings(test-backend-ops)
         disable_msvc_warnings(test-cont)
         disable_msvc_warnings(test-conv-transpose)
