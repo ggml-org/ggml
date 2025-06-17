@@ -4359,12 +4359,14 @@ struct ggml_tensor * ggml_roll(
     GGML_ASSERT(abs(shift3) < a->ne[3]);
 
     struct ggml_tensor * result = ggml_dup_tensor(ctx, a);
-    result->op           = GGML_OP_ROLL;
-    result->src[0]       = a;
-    result->op_params[0] = shift0;
-    result->op_params[1] = shift1;
-    result->op_params[2] = shift2;
-    result->op_params[3] = shift3;
+
+    ggml_set_op_params_i32(result, 0, shift0);
+    ggml_set_op_params_i32(result, 1, shift1);
+    ggml_set_op_params_i32(result, 2, shift2);
+    ggml_set_op_params_i32(result, 3, shift3);
+
+    result->op     = GGML_OP_ROLL;
+    result->src[0] = a;
 
     return result;
 }

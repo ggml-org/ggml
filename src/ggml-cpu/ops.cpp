@@ -6814,15 +6814,15 @@ static void ggml_compute_forward_roll_f32(
 
     GGML_TENSOR_UNARY_OP_LOCALS
 
-    const int s0 = dst->op_params[0];
-    const int s1 = dst->op_params[1];
-    const int s2 = dst->op_params[2];
-    const int s3 = dst->op_params[3];
+    const int s0 = ggml_get_op_params_i32(dst, 0);
+    const int s1 = ggml_get_op_params_i32(dst, 1);
+    const int s2 = ggml_get_op_params_i32(dst, 2);
+    const int s3 = ggml_get_op_params_i32(dst, 3);
 
     const int64_t total = ne1 * ne2 * ne3;
     const int64_t per_thread = (total + params->nth) / params->nth;
     const int64_t start = params->ith * per_thread;
-    const int64_t end   = MIN(start + per_thread, total);
+    const int64_t end   = std::min(start + per_thread, total);
 
     for (int64_t i = start; i < end; ++i) {
         const int64_t i1 = i % ne1;
