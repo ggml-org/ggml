@@ -165,6 +165,7 @@ add_definitions(-UNDEBUG)
 set(TEST_TARGET test-vec0)
 add_executable(${TEST_TARGET} ${TEST_TARGET}.c)
 target_link_libraries(${TEST_TARGET} PRIVATE ggml)
+add_test(NAME ${TEST_TARGET} COMMAND $<TARGET_FILE:${TEST_TARGET}>)
 
 #
 # test-vec1 (x86)
@@ -172,6 +173,7 @@ if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "x86" AND "${CMAKE_C_FLAGS}" MATCHES "avx"
     set(TEST_TARGET test-vec1)
     add_executable(${TEST_TARGET} ${TEST_TARGET}.c)
     target_link_libraries(${TEST_TARGET} PRIVATE ggml)
+    add_test(NAME ${TEST_TARGET} COMMAND $<TARGET_FILE:${TEST_TARGET}>)
 endif()
 
 #
@@ -180,6 +182,7 @@ if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "arm")
     set(TEST_TARGET test-vec2)
     add_executable(${TEST_TARGET} ${TEST_TARGET}.c)
     target_link_libraries(${TEST_TARGET} PRIVATE ggml)
+    add_test(NAME ${TEST_TARGET} COMMAND $<TARGET_FILE:${TEST_TARGET}>)
 endif()
 
 #
@@ -234,6 +237,7 @@ if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "x86" AND GGML_OPENBLAS)
     add_executable(${TEST_TARGET} ${TEST_TARGET}.c)
     target_link_libraries(${TEST_TARGET} PRIVATE ggml ${GGML_EXTRA_LIBS})
     target_compile_options(${TEST_TARGET} PRIVATE ${GGML_EXTRA_FLAGS})
+    add_test(NAME ${TEST_TARGET} COMMAND $<TARGET_FILE:${TEST_TARGET}>)
 endif()
 
 
