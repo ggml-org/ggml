@@ -13,7 +13,6 @@
 #include <cmath>
 #include <cstring>
 #include <cassert>
-#include <cstdlib> // for qsort
 #include <cstdio>  // for GGML_ASSERT
 
 #include "repack.h"
