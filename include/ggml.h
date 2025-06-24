@@ -1763,8 +1763,9 @@ extern "C" {
             float                 p1);
 
     enum ggml_scale_mode {
-        GGML_SCALE_MODE_NEAREST  = 0,
-        GGML_SCALE_MODE_BILINEAR = 1,
+        GGML_SCALE_MODE_NEAREST                = 0,
+        GGML_SCALE_MODE_BILINEAR               = 1,
+        GGML_SCALE_MODE_BILINEAR_ALIGN_CORNERS = 2
     };
 
     // interpolate
