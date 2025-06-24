@@ -22,7 +22,7 @@ int64_t wrap(int64_t i, int64_t ne) {
 }
 
 std::vector<float> roll_reference(
-    const float * src, std::array<int64_t, 4> ne, std::array<int64_t, 4> shift) {
+    const float * src, std::array<int64_t, 4> ne, std::array<int, 4> shift) {
 
     const int64_t ne0 = ne[0], ne1 = ne[1], ne2 = ne[2], ne3 = ne[3];
     std::vector<float> dst(ne0 * ne1 * ne2 * ne3);
@@ -45,7 +45,7 @@ std::vector<float> roll_reference(
     return dst;
 }
 
-std::vector<float> f32_range(int n) {
+std::vector<float> f32_range(int64_t n) {
     std::vector<float> values(n);
     std::iota(values.begin(), values.end(), 0.f);
     return values;
@@ -65,7 +65,7 @@ bool check_equal(const std::vector<float> & result, const std::vector<float> & e
     return true;
 }
 
-bool test_roll(std::array<int64_t, 4> ne, std::array<int64_t, 4> shift, bool permute) {
+bool test_roll(std::array<int64_t, 4> ne, std::array<int, 4> shift, bool permute) {
     ggml_time_init();
 
     ggml_init_params params {
