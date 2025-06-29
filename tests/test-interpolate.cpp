@@ -20,10 +20,10 @@ bool check_equal(const float * result, const float * expected, int64_t n) {
     return true;
 }
 
-bool test_upscale(char const* name,
-                  std::array<int64_t, 4> src_ne, const float * src_data,
-                  std::array<int32_t, 4> dst_ne, const float * expected,
-                  ggml_scale_mode mode) {
+bool test_interpolate(char const* name,
+                      std::array<int64_t, 4> src_ne, const float * src_data,
+                      std::array<int32_t, 4> dst_ne, const float * expected,
+                      uint32_t mode) {
     ggml_time_init();
 
     ggml_init_params params {
@@ -38,7 +38,7 @@ bool test_upscale(char const* name,
 
     // Build graph
     ggml_tensor * src = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, src_ne.data());
-    ggml_tensor * res = ggml_upscale_ext(ctx, src, dst_ne[0], dst_ne[1], dst_ne[2], dst_ne[3], mode);
+    ggml_tensor * res = ggml_interpolate(ctx, src, dst_ne[0], dst_ne[1], dst_ne[2], dst_ne[3], mode);
     ggml_build_forward_expand(gf, res);
 
     // Create backend & allocate buffers
@@ -56,7 +56,7 @@ bool test_upscale(char const* name,
 
     bool passed = check_equal(res_values.data(), expected, ggml_nelements(res));
 
-    printf("ggml_upscale(%s): %s\n", name, passed ? "\033[32mPASSED\033[0m" : "\033[31mFAILED\033[0m");
+    printf("ggml_interpolate(%s): %s\n", name, passed ? "\033[32mPASSED\033[0m" : "\033[31mFAILED\033[0m");
     return passed;
 }
 
@@ -127,40 +127,40 @@ const float expected_downscale_bilinear_align_corners[] = {
 int main() {
     bool passed = true;
 
-    passed &= test_upscale("upscale_x2_nearest",
+    passed &= test_interpolate("upscale_x2_nearest",
         {2, 2, 1, 1}, input_upscale,
         {4, 4, 1, 1}, expected_upscale_x2_nearest,
         GGML_SCALE_MODE_NEAREST);
 
-    passed &= test_upscale("upscale_x2_bilinear",
+    passed &= test_interpolate("upscale_x2_bilinear",
         {2, 2, 1, 1}, input_upscale,
         {4, 4, 1, 1}, expected_upscale_x2_bilinear,
         GGML_SCALE_MODE_BILINEAR);
 
-    passed &= test_upscale("upscale_x2_bilinear_align_corners",
+    passed &= test_interpolate("upscale_x2_bilinear_align_corners",
         {2, 2, 1, 1}, input_upscale,
         {4, 4, 1, 1}, expected_upscale_x2_bilinear_align_corners,
-        GGML_SCALE_MODE_BILINEAR_ALIGN_CORNERS);
+        GGML_SCALE_MODE_BILINEAR | GGML_SCALE_ALIGN_CORNERS);
 
-    passed &= test_upscale("upscale_x1_5_bilinear_align_corners",
+    passed &= test_interpolate("upscale_x1_5_bilinear_align_corners",
         {2, 2, 1, 1}, input_upscale,
         {2, 3, 1, 1}, expected_upscale_x1_5_bilinear_align_corners,
-        GGML_SCALE_MODE_BILINEAR_ALIGN_CORNERS);
+        GGML_SCALE_MODE_BILINEAR | GGML_SCALE_ALIGN_CORNERS);
 
-    passed &= test_upscale("downscale_nearest",
+    passed &= test_interpolate("downscale_nearest",
         {4, 3, 2, 1}, input_downscale,
         {2, 1, 2, 1}, expected_downscale_nearest,
         GGML_SCALE_MODE_NEAREST);
 
-    passed &= test_upscale("downscale_bilinear",
+    passed &= test_interpolate("downscale_bilinear",
         {4, 3, 2, 1}, input_downscale,
         {3, 2, 2, 1}, expected_downscale_bilinear,
         GGML_SCALE_MODE_BILINEAR);
 
-    passed &= test_upscale("downscale_bilinear_align_corners",
+    passed &= test_interpolate("downscale_bilinear_align_corners",
         {4, 3, 2, 1}, input_downscale,
         {3, 2, 2, 1}, expected_downscale_bilinear_align_corners,
-        GGML_SCALE_MODE_BILINEAR_ALIGN_CORNERS);
+        GGML_SCALE_MODE_BILINEAR | GGML_SCALE_ALIGN_CORNERS);
 
     return passed ? 0 : 1;
 }

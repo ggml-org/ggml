@@ -6613,7 +6613,8 @@ static void ggml_compute_forward_upscale_f32(
     float sf2 = (float)ne2/src0->ne[2];
     float sf3 = (float)ne3/src0->ne[3];
 
-    const ggml_scale_mode mode = (ggml_scale_mode) ggml_get_op_params_i32(dst, 0);
+    const int32_t mode_flags = ggml_get_op_params_i32(dst, 0);
+    const ggml_scale_mode mode = (ggml_scale_mode) (mode_flags & 0xFF);
 
     if (mode == GGML_SCALE_MODE_NEAREST) {
         for (int64_t i3 = 0; i3 < ne3; i3++) {
@@ -6633,9 +6634,9 @@ static void ggml_compute_forward_upscale_f32(
                 }
             }
         }
-    } else if (mode == GGML_SCALE_MODE_BILINEAR || mode == GGML_SCALE_MODE_BILINEAR_ALIGN_CORNERS) {
+    } else if (mode == GGML_SCALE_MODE_BILINEAR) {
         float pixel_offset = 0.5f;
-        if (mode == GGML_SCALE_MODE_BILINEAR_ALIGN_CORNERS) {
+        if (mode_flags & GGML_SCALE_ALIGN_CORNERS) {
             pixel_offset = 0.0f;
             sf0 = (float)(ne0 - 1) / (src0->ne[0] - 1);
             sf1 = (float)(ne1 - 1) / (src0->ne[1] - 1);
