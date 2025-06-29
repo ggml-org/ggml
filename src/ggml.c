@@ -4252,10 +4252,10 @@ struct ggml_tensor * ggml_pool_2d_back(
 static struct ggml_tensor * ggml_interpolate_impl(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
-        int                   ne0,
-        int                   ne1,
-        int                   ne2,
-        int                   ne3,
+        int64_t               ne0,
+        int64_t               ne1,
+        int64_t               ne2,
+        int64_t               ne3,
         uint32_t              mode) {
     GGML_ASSERT((mode & 0xFF) < GGML_SCALE_MODE_COUNT);
     
@@ -4292,10 +4292,10 @@ struct ggml_tensor * ggml_upscale_ext(
 struct ggml_tensor * ggml_interpolate(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
-        int                   ne0,
-        int                   ne1,
-        int                   ne2,
-        int                   ne3,
+        int64_t               ne0,
+        int64_t               ne1,
+        int64_t               ne2,
+        int64_t               ne3,
         uint32_t              mode) {
     return ggml_interpolate_impl(ctx, a, ne0, ne1, ne2, ne3, mode);
 }
