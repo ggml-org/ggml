@@ -6636,7 +6636,7 @@ static void ggml_compute_forward_upscale_f32(
         }
     } else if (mode == GGML_SCALE_MODE_BILINEAR) {
         float pixel_offset = 0.5f;
-        if (mode_flags & GGML_SCALE_ALIGN_CORNERS) {
+        if (mode_flags & GGML_SCALE_FLAG_ALIGN_CORNERS) {
             pixel_offset = 0.0f;
             sf0 = (float)(ne0 - 1) / (src0->ne[0] - 1);
             sf1 = (float)(ne1 - 1) / (src0->ne[1] - 1);
