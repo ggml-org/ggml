@@ -465,6 +465,10 @@ const char * ggml_version(void) {
     return GGML_VERSION;
 }
 
+const char * ggml_commit(void) {
+    return GGML_COMMIT;
+}
+
 //
 // timing
 //
