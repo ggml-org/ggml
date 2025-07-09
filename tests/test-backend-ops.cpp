@@ -5029,7 +5029,6 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
         return true;
     }
 
-
     if (mode == MODE_SUPPORT) {
         auto test_cases = make_test_cases_eval();
         filter_test_cases(test_cases, params_filter);
@@ -5038,7 +5037,7 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
                 /*.mem_size   =*/ 256*1024*1024,
                 /*.mem_buffer =*/ NULL,
                 /*.no_alloc   =*/ true,
-           };
+            };
             ggml_context * ctx = ggml_init(params);
 
             if (ctx == NULL) {
