@@ -1,94 +1,94 @@
 # GGML Operations
 
-List of GGML operations and backend support.
+List of GGML operations and backend support status.
 
-| Operation | CPU | CUDA | Metal | Vulkan | OpenCL | CANN |
-|-----------|-----|------|-------|--------|--------|------|
-| GGML_OP_ACC | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| GGML_OP_ADD | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_ADD1 | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
-| GGML_OP_ADD_REL_POS | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_ARANGE | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
-| GGML_OP_ARGMAX | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| GGML_OP_ARGSORT | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_CLAMP | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_CONCAT | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_CONT | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_CONV_2D | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_CONV_2D_DW | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| GGML_OP_CONV_TRANSPOSE_1D | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| GGML_OP_CONV_TRANSPOSE_2D | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_COS | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| GGML_OP_COUNT_EQUAL | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ |
-| GGML_OP_CPY | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_CROSS_ENTROPY_LOSS | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_CROSS_ENTROPY_LOSS_BACK | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_CUSTOM | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_DIAG | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_DIAG_MASK_INF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_DIAG_MASK_ZERO | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_DIV | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_DUP | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_FLASH_ATTN_BACK | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_FLASH_ATTN_EXT | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| GGML_OP_GATED_LINEAR_ATTN | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_GET_REL_POS | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_GET_ROWS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_GET_ROWS_BACK | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_GLU | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| GGML_OP_GROUP_NORM | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_IM2COL | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_IM2COL_BACK | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_L2_NORM | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| GGML_OP_LEAKY_RELU | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| GGML_OP_LOG | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
-| GGML_OP_MAP_CUSTOM1 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_MAP_CUSTOM2 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_MAP_CUSTOM3 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_MEAN | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
-| GGML_OP_MUL | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_MUL_MAT | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_MUL_MAT_ID | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_NONE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_NORM, | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_OPT_STEP_ADAMW | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| GGML_OP_OUT_PROD | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_PAD | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_PAD_REFLECT_1D | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
-| GGML_OP_PERMUTE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_POOL_1D | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| GGML_OP_POOL_2D | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| GGML_OP_POOL_2D_BACK | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_REPEAT | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_REPEAT_BACK | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| GGML_OP_RESHAPE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_RMS_NORM | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_RMS_NORM_BACK | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| GGML_OP_ROLL | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| GGML_OP_ROPE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_ROPE_BACK | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| GGML_OP_RWKV_WKV6 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| GGML_OP_RWKV_WKV7 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| GGML_OP_SCALE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_SET | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| GGML_OP_SET_ROWS | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| GGML_OP_SILU_BACK | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| GGML_OP_SIN | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| GGML_OP_SOFT_MAX | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_SOFT_MAX_BACK | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| GGML_OP_SQR | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| GGML_OP_SQRT | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
-| GGML_OP_SSM_CONV | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| GGML_OP_SSM_SCAN | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| GGML_OP_SUB | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_SUM | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ |
-| GGML_OP_SUM_ROWS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_TIMESTEP_EMBEDDING | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_TRANSPOSE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_UNARY | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_UPSCALE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_VIEW | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GGML_OP_WIN_PART | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| GGML_OP_WIN_UNPART | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+Legend:
+- ✅ Fully supported by this backend
+- 🟡 Partially supported by this backend
+- ❌ Not supported by this backend
 
-Total operations: 86
+| Operation | CPU | CUDA |
+|-----------|------|------|
+| ABS | ✅ | 🟡 |
+| ACC | ✅ | ✅ |
+| ADD | ✅ | ✅ |
+| ADD1 | ✅ | ✅ |
+| ARANGE | ✅ | ✅ |
+| ARGMAX | ✅ | ✅ |
+| ARGSORT | ✅ | ✅ |
+| CLAMP | ✅ | ✅ |
+| CONCAT | ✅ | 🟡 |
+| CONT | ✅ | 🟡 |
+| CONV_2D_DW | ✅ | ✅ |
+| CONV_TRANSPOSE_1D | ✅ | ✅ |
+| CONV_TRANSPOSE_2D | ✅ | ✅ |
+| COS | ✅ | ✅ |
+| COUNT_EQUAL | ✅ | ✅ |
+| CPY | 🟡 | 🟡 |
+| CROSS_ENTROPY_LOSS | ✅ | ✅ |
+| CROSS_ENTROPY_LOSS_BACK | ✅ | ✅ |
+| DIAG_MASK_INF | ✅ | ✅ |
+| DIV | ✅ | ✅ |
+| DUP | ✅ | 🟡 |
+| ELU | ✅ | ❌ |
+| EXP | ✅ | 🟡 |
+| FLASH_ATTN_EXT | ✅ | 🟡 |
+| GATED_LINEAR_ATTN | ✅ | ✅ |
+| GEGLU | ✅ | ✅ |
+| GELU | ✅ | 🟡 |
+| GELU_ERF | ✅ | 🟡 |
+| GELU_QUICK | ✅ | 🟡 |
+| GET_ROWS | ✅ | 🟡 |
+| GET_ROWS_BACK | 🟡 | 🟡 |
+| GROUP_NORM | ✅ | ✅ |
+| HARDSIGMOID | ✅ | 🟡 |
+| HARDSWISH | ✅ | 🟡 |
+| IM2COL | ✅ | ✅ |
+| L2_NORM | ✅ | ✅ |
+| LEAKY_RELU | ✅ | ✅ |
+| LOG | ✅ | ✅ |
+| MEAN | ✅ | ✅ |
+| MUL | ✅ | ✅ |
+| MUL_MAT | 🟡 | 🟡 |
+| MUL_MAT_ID | ✅ | ✅ |
+| NEG | ✅ | 🟡 |
+| NORM | ✅ | ✅ |
+| OPT_STEP_ADAMW | ✅ | ✅ |
+| OUT_PROD | 🟡 | 🟡 |
+| PAD | ✅ | ✅ |
+| PAD_REFLECT_1D | ✅ | ❌ |
+| POOL_2D | ✅ | ✅ |
+| REGLU | ✅ | ✅ |
+| RELU | ✅ | 🟡 |
+| REPEAT | ✅ | 🟡 |
+| REPEAT_BACK | ✅ | ✅ |
+| RMS_NORM | ✅ | ✅ |
+| RMS_NORM_BACK | ✅ | ✅ |
+| RMS_NORM_MUL | ✅ | ✅ |
+| ROLL | ✅ | ❌ |
+| ROPE | ✅ | ✅ |
+| ROPE_BACK | ✅ | ✅ |
+| RWKV_WKV6 | ✅ | ✅ |
+| RWKV_WKV7 | ✅ | ✅ |
+| SCALE | ✅ | ✅ |
+| SET | ✅ | ❌ |
+| SET_ROWS | 🟡 | ❌ |
+| SGN | ✅ | 🟡 |
+| SIGMOID | ✅ | 🟡 |
+| SILU | ✅ | 🟡 |
+| SILU_BACK | ✅ | ✅ |
+| SIN | ✅ | ✅ |
+| SOFT_MAX | ✅ | ✅ |
+| SOFT_MAX_BACK | 🟡 | 🟡 |
+| SQR | ✅ | ✅ |
+| SQRT | ✅ | ✅ |
+| SSM_CONV | ✅ | ✅ |
+| SSM_SCAN | ✅ | ✅ |
+| STEP | ✅ | 🟡 |
+| SUB | ✅ | ✅ |
+| SUM | ✅ | ✅ |
+| SUM_ROWS | ✅ | ✅ |
+| SWIGLU | ✅ | ✅ |
+| TANH | ✅ | 🟡 |
+| TIMESTEP_EMBEDDING | ✅ | ✅ |
+| UPSCALE | ✅ | 🟡 |

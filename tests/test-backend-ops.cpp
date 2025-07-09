@@ -315,6 +315,7 @@ enum test_mode {
     MODE_TEST,
     MODE_PERF,
     MODE_GRAD,
+    MODE_SUPPORT,
 };
 
 struct test_case {
@@ -5028,6 +5029,52 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
         return true;
     }
 
+
+    if (mode == MODE_SUPPORT) {
+        auto test_cases = make_test_cases_eval();
+        filter_test_cases(test_cases, params_filter);
+        for (auto & test : test_cases ) {
+            ggml_init_params params = {
+                /*.mem_size   =*/ 256*1024*1024,
+                /*.mem_buffer =*/ NULL,
+                /*.no_alloc   =*/ true,
+           };
+            ggml_context * ctx = ggml_init(params);
+
+            if (ctx == NULL) {
+                printf("supported,CONTEXT_ERROR,no,error\n");
+                continue;
+            }
+
+            ggml_tensor * out = test->build_graph(ctx);
+
+            if (out == NULL) {
+                printf("supported,BUILD_ERROR,no,error\n");
+                ggml_free(ctx);
+                continue;
+            }
+
+            std::string op_desc = test->op_desc(out);
+
+            if (op_name != nullptr && op_desc.find(op_name) == std::string::npos) {
+                ggml_free(ctx);
+                continue;
+            }
+
+            bool supported = ggml_backend_supports_op(backend, out);
+
+            std::string test_vars = test->vars();
+
+            printf("supported,%s,%s,%s\n",
+                   op_desc.c_str(),
+                   supported ? "yes" : "no",
+                   test_vars.c_str());
+
+            ggml_free(ctx);
+        }
+        return true;
+    }
+
     GGML_ABORT("fatal error");
 }
 
@@ -5037,6 +5084,7 @@ static void usage(char ** argv) {
     printf("      - test (default, compare with CPU backend for correctness)\n");
     printf("      - grad (compare gradients from backpropagation with method of finite differences)\n");
     printf("      - perf (performance evaluation)\n");
+    printf("      - support (check if operations are supported for some backend)\n");
     printf("    op names for -o are as given by ggml_op_desc() (e.g. ADD, MUL_MAT, etc)\n");
 }
 
@@ -5053,6 +5101,8 @@ int main(int argc, char ** argv) {
             mode = MODE_PERF;
         } else if (strcmp(argv[i], "grad") == 0) {
             mode = MODE_GRAD;
+        } else if (strcmp(argv[i], "support") == 0) {
+            mode = MODE_SUPPORT;
         } else if (strcmp(argv[i], "-o") == 0) {
             if (i + 1 < argc) {
                 op_name_filter = argv[++i];
