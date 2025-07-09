@@ -136,7 +136,7 @@ class DocsGenerator:
         sorted_operations = sorted(self.all_operations)
 
         for operation in sorted_operations:
-            row = f"| {operation} |"
+            row = f"| {operation:>32} |"
 
             for backend in backends:
                 status = self.get_backend_support_status(backend, operation)
