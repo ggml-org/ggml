@@ -5029,6 +5029,7 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
         return true;
     }
 
+
     if (mode == MODE_SUPPORT) {
         auto test_cases = make_test_cases_eval();
         filter_test_cases(test_cases, params_filter);
@@ -5037,7 +5038,7 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
                 /*.mem_size   =*/ 256*1024*1024,
                 /*.mem_buffer =*/ NULL,
                 /*.no_alloc   =*/ true,
-            };
+           };
             ggml_context * ctx = ggml_init(params);
 
             if (ctx == NULL) {
@@ -5061,13 +5062,15 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
             }
 
             bool supported = ggml_backend_supports_op(backend, out);
-
             std::string test_vars = test->vars();
 
-            printf("supported,%s,%s,%s\n",
+            printf("supported,%s,%s,%s,%s,%s\n",
+                   ggml_backend_reg_name(ggml_backend_dev_backend_reg(ggml_backend_get_device(backend))),
+                   ggml_backend_dev_name(ggml_backend_get_device(backend)),
                    op_desc.c_str(),
                    supported ? "yes" : "no",
-                   test_vars.c_str());
+                   test_vars.c_str()
+                );
 
             ggml_free(ctx);
         }

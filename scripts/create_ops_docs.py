@@ -27,20 +27,11 @@ class DocsGenerator:
 
         print(f"Parsing support files from {self.ops_dir}...")
 
-        for backend_dir in self.ops_dir.iterdir():
-            if not backend_dir.is_dir():
-                continue
+        for support_file in self.ops_dir.glob("*.txt"):
+            print(f"  Reading: {support_file.name}")
+            self._parse_support_file(support_file)
 
-            backend_name = backend_dir.name
-            self.all_backends.add(backend_name)
-
-            print(f"  Processing backend: {backend_name}")
-
-            for support_file in backend_dir.glob("*.txt"):
-                print(f"    Reading: {support_file.name}")
-                self._parse_support_file(support_file, backend_name)
-
-    def _parse_support_file(self, file_path: Path, backend_name: str) -> None:
+    def _parse_support_file(self, file_path: Path) -> None:
         try:
             with open(file_path, "r") as f:
                 content = f.read()
@@ -50,9 +41,11 @@ class DocsGenerator:
 
                 if line.startswith("supported,"):
                     parts = line.split(",")
-                    if len(parts) >= 3:
-                        operation = parts[1].strip()
-                        supported_str = parts[2].strip()
+                    if len(parts) >= 5:
+                        backend_name = parts[1].strip()
+                        device = parts[2].strip()
+                        operation = parts[3].strip()
+                        supported_str = parts[4].strip()
 
                         if not operation or operation in [
                             "CONTEXT_ERROR",
@@ -62,6 +55,7 @@ class DocsGenerator:
 
                         is_supported = supported_str.lower() == "yes"
 
+                        self.all_backends.add(backend_name)
                         self.backend_support[backend_name][operation].append(
                             is_supported
                         )
@@ -160,7 +154,7 @@ class DocsGenerator:
 
         if not self.all_operations:
             print(
-                "No operations found. Make sure to run test-backend-ops support > docs/ops/BACKEND/file.txt first."
+                "No operations found. Make sure to run test-backend-ops support > docs/ops/file.txt first."
             )
             return
 
