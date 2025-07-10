@@ -42,6 +42,7 @@ jobs:
     env:
       GGML_NLOOP: 3
       GGML_NITER: 1
+      GGML_N_THREADS: 2
 
     steps:
     - uses: actions/checkout@v3
@@ -51,14 +52,6 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install llvm
-
-    - name: Set GGML_N_THREADS for Ubuntu
-      run: echo "GGML_N_THREADS=2" >> $GITHUB_ENV
-      if: matrix.os == 'ubuntu-latest'
-
-    - name: Set GGML_N_THREADS for MacOS
-      run: echo "GGML_N_THREADS=2" >> $GITHUB_ENV
-      if: matrix.os == 'macos-latest'
 
     - name: Create Build Environment
       run: mkdir build
