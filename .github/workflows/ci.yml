@@ -65,7 +65,11 @@ jobs:
 
     - name: Configure CMake
       working-directory: ./build
-      run: cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DGGML_METAL=OFF ..
+      run: cmake ..
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++
+        -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/installed
+        -DGGML_METAL=OFF
 
     - name: Build
       working-directory: ./build
@@ -74,6 +78,16 @@ jobs:
     - name: Test
       working-directory: ./build
       run: ctest --verbose --timeout 900
+
+    - name: Install
+      working-directory: ./build
+      run: cmake --build . --target install
+
+    - name: Test CMake config
+      run: |
+        mkdir test-cmake
+        cmake -S examples/test-cmake -B test-cmake -DCMAKE_PREFIX_PATH=${{ github.workspace }}/installed
+        cmake --build test-cmake
 
   windows:
     if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' ||
