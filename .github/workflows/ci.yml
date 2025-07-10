@@ -34,6 +34,7 @@ jobs:
     - name: Configure CMake
       working-directory: ./build
       run: cmake ..
+        -G Ninja
         -DCMAKE_C_COMPILER=clang
         -DCMAKE_CXX_COMPILER=clang++
         -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/installed
@@ -41,7 +42,7 @@ jobs:
 
     - name: Build
       working-directory: ./build
-      run: make
+      run: cmake --build .
 
     - name: Test
       working-directory: ./build
