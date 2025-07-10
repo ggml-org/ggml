@@ -7,35 +7,10 @@ on:
     branches: [ master ]
 
 jobs:
-  test-macos:
-    runs-on: macos-13
-    env:
-      GGML_NLOOP: 3
-      GGML_NITER: 1
-      GGML_N_THREADS: 2
-
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Create Build Environment
-      run: mkdir build
-
-    - name: Configure CMake
-      working-directory: ./build
-      run: cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DGGML_METAL=OFF ..
-
-    - name: Build
-      working-directory: ./build
-      run: make
-
-    - name: Test
-      working-directory: ./build
-      run: ctest --verbose --timeout 900
-
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, macos-13]
 
     runs-on: ${{ matrix.os }}
 
