@@ -3,6 +3,13 @@ include("../cmake/common.cmake")
 
 add_compile_definitions(GGML_SCHED_MAX_COPIES=${GGML_SCHED_MAX_COPIES})
 
+# Some compilers will complain about using armv9.2_x and abort compilation
+# so this switch will simply skip the armv9 options. This only affects very
+# specific GGML_CPU_ALL_VARIANTS targets (e.g. Pi5 and Ampere Altra)
+# By default it is false so the GGML_SKIP_ARM9=ON must be passed to cmake
+# have any effect on compilation
+option(GGML_SKIP_ARM9 "Skip attempting to compile for armv9 cpus" OFF)
+
 # enable libstdc++ assertions for debug builds
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     add_compile_definitions($<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>)
@@ -326,8 +333,10 @@ if (GGML_CPU_ALL_VARIANTS)
             ggml_add_cpu_backend_variant(armv8.2_3    DOTPROD FP16_VECTOR_ARITHMETIC SVE)
             ggml_add_cpu_backend_variant(armv8.6_1    DOTPROD FP16_VECTOR_ARITHMETIC SVE MATMUL_INT8)
             ggml_add_cpu_backend_variant(armv8.6_2    DOTPROD FP16_VECTOR_ARITHMETIC SVE MATMUL_INT8 SVE2)
-            ggml_add_cpu_backend_variant(armv9.2_1    DOTPROD FP16_VECTOR_ARITHMETIC SVE MATMUL_INT8 SME)
-            ggml_add_cpu_backend_variant(armv9.2_2    DOTPROD FP16_VECTOR_ARITHMETIC SVE MATMUL_INT8 SVE2 SME)
+            if(NOT GGML_SKIP_ARM9)
+                ggml_add_cpu_backend_variant(armv9.2_1    DOTPROD FP16_VECTOR_ARITHMETIC SVE MATMUL_INT8 SME)
+                ggml_add_cpu_backend_variant(armv9.2_2    DOTPROD FP16_VECTOR_ARITHMETIC SVE MATMUL_INT8 SVE2 SME)
+            endif()
         elseif (CMAKE_SYSTEM_NAME MATCHES "Android")
             # Android-specific backends with SoC-compatible feature sets
             ggml_add_cpu_backend_variant(android_armv8.0_1)
