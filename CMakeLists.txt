@@ -43,11 +43,6 @@ option(BUILD_SHARED_LIBS "ggml: build shared libraries" ${BUILD_SHARED_LIBS_DEFA
 option(GGML_BACKEND_DL   "ggml: build backends as dynamic libraries (requires BUILD_SHARED_LIBS)" OFF)
 
 
-if (MSVC)
-    add_compile_options("$<$<COMPILE_LANGUAGE:C>:/utf-8>")
-    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/utf-8>")
-endif()
-
 #
 # option list
 #
