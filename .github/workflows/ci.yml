@@ -14,11 +14,6 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
-    env:
-      GGML_NLOOP: 3
-      GGML_NITER: 1
-      GGML_N_THREADS: 2
-
     steps:
     - uses: actions/checkout@v3
 
