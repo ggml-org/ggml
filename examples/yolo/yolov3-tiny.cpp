@@ -1,16 +1,7 @@
 #include "ggml.h"
 #include "gguf.h"
-#include "ggml-cpu.h"
 #include "ggml-alloc.h"
 #include "ggml-backend.h"
-
-#ifdef GGML_USE_CUDA
-#include "ggml-cuda.h"
-#endif
-
-#ifdef GGML_USE_METAL
-#include "ggml-metal.h"
-#endif
 
 #include "yolo-image.h"
 
@@ -22,6 +13,8 @@
 #include <vector>
 #include <algorithm>
 #include <fstream>
+#include <algorithm>
+#include <thread>
 
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
@@ -42,7 +35,7 @@ struct yolo_model {
     int width = 416;
     int height = 416;
     std::vector<conv2d_layer> conv2d_layers;
-    ggml_backend_t backend = NULL;
+    ggml_backend_t backend;
     ggml_backend_buffer_t buffer;
     struct ggml_context * ctx;
 };
@@ -82,27 +75,6 @@ struct detection {
 };
 
 static bool load_model(const std::string & fname, yolo_model & model) {
-    // initialize the backend
-#ifdef GGML_USE_CUDA
-    fprintf(stderr, "%s: using CUDA backend\n", __func__);
-    model.backend = ggml_backend_cuda_init(0); // init device 0
-    if (!model.backend) {
-        fprintf(stderr, "%s: ggml_backend_cuda_init() failed\n", __func__);
-    }
-#endif
-
-#ifdef GGML_USE_METAL
-    fprintf(stderr, "%s: using Metal backend\n", __func__);
-    model.backend = ggml_backend_metal_init();
-    if (!model.backend) {
-        fprintf(stderr, "%s: ggml_backend_metal_init() failed\n", __func__);
-    }
-#endif
-
-    // if there aren't GPU Backends fallback to CPU backend
-    if (!model.backend) {
-        model.backend = ggml_backend_cpu_init();
-    }
     struct ggml_context * tmp_ctx = nullptr;
     struct gguf_init_params gguf_params = {
         /*.no_alloc   =*/ false,
@@ -511,35 +483,64 @@ struct yolo_params {
     std::string model     = "yolov3-tiny.gguf";
     std::string fname_inp = "input.jpg";
     std::string fname_out = "predictions.jpg";
+    int         n_threads  = std::max(1U, std::thread::hardware_concurrency()/2);
+    std::string device;
 };
 
 void yolo_print_usage(int argc, char ** argv, const yolo_params & params) {
     fprintf(stderr, "usage: %s [options]\n", argv[0]);
     fprintf(stderr, "\n");
     fprintf(stderr, "options:\n");
-    fprintf(stderr, "  -h, --help            show this help message and exit\n");
-    fprintf(stderr, "  -th T, --thresh T     detection threshold (default: %.2f)\n", params.thresh);
-    fprintf(stderr, "  -m FNAME, --model FNAME\n");
-    fprintf(stderr, "                        model path (default: %s)\n", params.model.c_str());
-    fprintf(stderr, "  -i FNAME, --inp FNAME\n");
-    fprintf(stderr, "                        input file (default: %s)\n", params.fname_inp.c_str());
-    fprintf(stderr, "  -o FNAME, --out FNAME\n");
-    fprintf(stderr, "                        output file (default: %s)\n", params.fname_out.c_str());
+    fprintf(stderr, "  -h,  --help                show this help message and exit\n");
+    fprintf(stderr, "  -d,  --device DEV          device to use\n");
+    fprintf(stderr, "  -t,  --threads N           number of threads for the CPU backend (default: %d)\n", params.n_threads);
+    fprintf(stderr, "  -th, --thresh T            detection threshold (default: %.2f)\n", params.thresh);
+    fprintf(stderr, "  -m,  --model FNAME         model path (default: %s)\n", params.model.c_str());
+    fprintf(stderr, "  -i,  --inp FNAME           input file (default: %s)\n", params.fname_inp.c_str());
+    fprintf(stderr, "  -o,  --out FNAME           output file (default: %s)\n", params.fname_out.c_str());
     fprintf(stderr, "\n");
 }
 
 bool yolo_params_parse(int argc, char ** argv, yolo_params & params) {
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-
         if (arg == "-th" || arg == "--thresh") {
             params.thresh = std::stof(argv[++i]);
+            if (params.thresh < 0 || params.thresh > 1) {
+                fprintf(stderr, "error: invalid threshold: %.2f\n", params.thresh);
+                return false;
+            }
         } else if (arg == "-m" || arg == "--model") {
             params.model = argv[++i];
         } else if (arg == "-i" || arg == "--inp") {
             params.fname_inp = argv[++i];
         } else if (arg == "-o" || arg == "--out") {
             params.fname_out = argv[++i];
+        } else if (arg == "-t" || arg == "--threads") {
+            if (++i >= argc) {
+                return false;
+            }
+            params.n_threads = std::stoi(argv[i]);
+            if (params.n_threads <= 0) {
+                fprintf(stderr, "error: invalid number of threads: %d\n", params.n_threads);
+                return false;
+            }
+        } else if (arg == "-d" || arg == "--device") {
+            if (++i >= argc) {
+                return false;
+            }
+            params.device = argv[i];
+            if (ggml_backend_dev_by_name(params.device.c_str()) == nullptr) {
+                fprintf(stderr, "error: unknown device: %s\n", params.device.c_str());
+                fprintf(stderr, "available devices:\n");
+                for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+                    auto * dev = ggml_backend_dev_get(i);
+                    size_t free, total;
+                    ggml_backend_dev_memory(dev, &free, &total);
+                    printf("  %s: %s (%zu MiB, %zu MiB free)\n", ggml_backend_dev_name(dev), ggml_backend_dev_description(dev), total / 1024 / 1024, free / 1024 / 1024);
+                }
+                return false;
+            }
         } else if (arg == "-h" || arg == "--help") {
             yolo_print_usage(argc, argv, params);
             exit(0);
@@ -553,8 +554,50 @@ bool yolo_params_parse(int argc, char ** argv, yolo_params & params) {
     return true;
 }
 
+static ggml_backend_t create_backend(const yolo_params & params) {
+    ggml_backend_t backend = nullptr;
+
+    if (!params.device.empty()) {
+        ggml_backend_dev_t dev = ggml_backend_dev_by_name(params.device.c_str());
+        if (dev) {
+            backend = ggml_backend_dev_init(dev, nullptr);
+            if (!backend) {
+                fprintf(stderr, "Failed to create backend for device %s\n", params.device.c_str());
+                return nullptr;
+            }
+        }
+    }
+
+    // try to initialize a GPU backend first
+    if (!backend) {
+        backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_GPU, nullptr);
+    }
+
+    // if there aren't GPU backends fallback to CPU backend
+    if (!backend) {
+        backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+    }
+
+    if (backend) {
+        fprintf(stderr, "%s: using %s backend\n", __func__, ggml_backend_name(backend));
+
+        // set the number of threads
+        ggml_backend_dev_t dev = ggml_backend_get_device(backend);
+        ggml_backend_reg_t reg = dev ? ggml_backend_dev_backend_reg(dev) : nullptr;
+        if (reg) {
+            auto ggml_backend_set_n_threads_fn = (ggml_backend_set_n_threads_t) ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads");
+            if (ggml_backend_set_n_threads_fn) {
+                ggml_backend_set_n_threads_fn(backend, params.n_threads);
+            }
+        }
+    }
+
+    return backend;
+}
+
 int main(int argc, char *argv[])
 {
+    ggml_backend_load_all();
     ggml_time_init();
     yolo_model model;
 
@@ -562,6 +605,12 @@ int main(int argc, char *argv[])
     if (!yolo_params_parse(argc, argv, params)) {
         return 1;
     }
+    model.backend = create_backend(params);
+    if (!model.backend) {
+        fprintf(stderr, "Failed to create backend\n");
+        return 1;
+    }
+
     if (!load_model(params.model, model)) {
         fprintf(stderr, "%s: failed to load model from '%s'\n", __func__, params.model.c_str());
         return 1;

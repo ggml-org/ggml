@@ -1460,7 +1460,7 @@ prompt_encoder_result sam_encode_prompt(
     ggml_set_name(inp, "prompt_input");
     ggml_set_input(inp);
 
-    auto * embd_prompt_sparse = [&]() {
+    auto * embd_prompt_sparse = [&]() -> struct ggml_tensor * {
         switch (prompt.prompt_type) {
         case SAM_PROMPT_TYPE_POINT: {
             // PromptEncoder._embed_points
@@ -1494,6 +1494,10 @@ prompt_encoder_result sam_encode_prompt(
             ggml_build_forward_expand(gf, ggml_add_inplace(ctx0, corner1, enc.pt_embd[3]));
 
             return corner_embd;
+        } break;
+        default: {
+            fprintf(stderr, "%s: unsupported prompt type %d\n", __func__, prompt.prompt_type);
+            return nullptr;
         } break;
         }
     }();

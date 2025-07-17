@@ -7,41 +7,12 @@ on:
     branches: [ master ]
 
 jobs:
-  test-macos:
-    runs-on: macos-13
-    env:
-      GGML_NLOOP: 3
-      GGML_NITER: 1
-      GGML_N_THREADS: 2
-
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Create Build Environment
-      run: mkdir build
-
-    - name: Configure CMake
-      working-directory: ./build
-      run: cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DGGML_METAL=OFF ..
-
-    - name: Build
-      working-directory: ./build
-      run: make
-
-    - name: Test
-      working-directory: ./build
-      run: ctest --verbose --timeout 900
-
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, macos-13]
 
     runs-on: ${{ matrix.os }}
-
-    env:
-      GGML_NLOOP: 3
-      GGML_NITER: 1
 
     steps:
     - uses: actions/checkout@v3
@@ -52,28 +23,35 @@ jobs:
         sudo apt-get update
         sudo apt-get install llvm
 
-    - name: Set GGML_N_THREADS for Ubuntu
-      run: echo "GGML_N_THREADS=2" >> $GITHUB_ENV
-      if: matrix.os == 'ubuntu-latest'
-
-    - name: Set GGML_N_THREADS for MacOS
-      run: echo "GGML_N_THREADS=2" >> $GITHUB_ENV
-      if: matrix.os == 'macos-latest'
-
     - name: Create Build Environment
       run: mkdir build
 
     - name: Configure CMake
       working-directory: ./build
-      run: cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DGGML_METAL=OFF ..
+      run: cmake ..
+        -G Ninja
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++
+        -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/installed
+        -DGGML_METAL=OFF
 
     - name: Build
       working-directory: ./build
-      run: make
+      run: cmake --build .
 
     - name: Test
       working-directory: ./build
       run: ctest --verbose --timeout 900
+
+    - name: Install
+      working-directory: ./build
+      run: cmake --build . --target install
+
+    - name: Test CMake config
+      run: |
+        mkdir test-cmake
+        cmake -S examples/test-cmake -B test-cmake -DCMAKE_PREFIX_PATH=${{ github.workspace }}/installed
+        cmake --build test-cmake
 
   windows:
     if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' ||

@@ -31,6 +31,8 @@
 #include <mutex>
 #include <queue>
 #include <chrono>
+#include <unordered_set>
+#include <optional>
 
 #include "ggml-impl.h"
 #include "ggml-backend-impl.h"
@@ -91,6 +93,26 @@ int32_t ggml_cann_get_device() {
     int32_t id;
     ACL_CHECK(aclrtGetDevice(&id));
     return id;
+}
+
+/**
+ * @brief Get the value of the specified environment variable (name).
+ *        if not empty, return a std::string object
+ */
+std::optional<std::string> get_env(const std::string& name) {
+    const char* val = std::getenv(name.c_str());
+    if (!val) return std::nullopt;
+    std::string res = std::string(val);
+    std::transform(res.begin(), res.end(), res.begin(), ::tolower);
+    return res;
+}
+
+/**
+ * @brief Verify whether the environment variable is a valid value.
+ */
+bool parse_bool(const std::string& value) {
+    std::unordered_set<std::string> valid_values = {"on", "1", "yes", "y", "enable", "true"};
+    return valid_values.find(value) != valid_values.end();
 }
 
 /**
@@ -214,7 +236,7 @@ struct ggml_cann_pool_buf_prio : public ggml_cann_pool {
      * @param device The device ID to associate with this buffer pool.
      */
     explicit ggml_cann_pool_buf_prio(int device) : device(device) {
-        disable_clean = getenv("GGML_CANN_DISABLE_BUF_POOL_CLEAN") != nullptr;
+        disable_clean = parse_bool(get_env("GGML_CANN_DISABLE_BUF_POOL_CLEAN").value_or(""));
     }
 
     /**
@@ -410,7 +432,7 @@ struct ggml_cann_pool_buf : public ggml_cann_pool {
      * @param device The device ID to associate with this buffer pool.
      */
     explicit ggml_cann_pool_buf(int device) : device(device) {
-        disable_clean = getenv("GGML_CANN_DISABLE_BUF_POOL_CLEAN") != nullptr;
+        disable_clean = parse_bool(get_env("GGML_CANN_DISABLE_BUF_POOL_CLEAN").value_or(""));
     }
 
     /**
@@ -731,16 +753,18 @@ struct ggml_cann_pool_vmm : public ggml_cann_pool {
  */
 std::unique_ptr<ggml_cann_pool> ggml_backend_cann_context::new_pool_for_device(
     int device) {
-    bool disable_vmm = (getenv("GGML_CANN_DISABLE_VMM_POOL") != nullptr);
-    if (!disable_vmm && ggml_cann_info().devices[device].vmm) {
-        GGML_LOG_INFO("%s: device %d use vmm pool\n", __func__, device);
-        return std::unique_ptr<ggml_cann_pool>(new ggml_cann_pool_vmm(device));
-    }
-    bool enable_buf_prio = (getenv("GGML_CANN_ENABLE_BUF_PRIO_POOL") != nullptr);
-    if (enable_buf_prio) {
+    std::string mem_pool_type = get_env("GGML_CANN_MEM_POOL").value_or("");
+
+    if (mem_pool_type == "prio") {
         GGML_LOG_INFO("%s: device %d use buffer pool with priority queue\n", __func__, device);
         return std::unique_ptr<ggml_cann_pool>(new ggml_cann_pool_buf_prio(device));
     }
+
+    if (ggml_cann_info().devices[device].vmm && mem_pool_type != "leg") {
+        GGML_LOG_INFO("%s: device %d use vmm pool\n", __func__, device);
+        return std::unique_ptr<ggml_cann_pool>(new ggml_cann_pool_vmm(device));
+    }
+
     GGML_LOG_INFO("%s: device %d use buffer pool\n", __func__, device);
     return std::unique_ptr<ggml_cann_pool>(new ggml_cann_pool_buf(device));
 }
@@ -2062,6 +2086,12 @@ static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev,
                     return false;
             }
         } break;
+        case GGML_OP_SET_ROWS:
+            {
+                // TODO: add support
+                // ref: https://github.com/ggml-org/llama.cpp/pull/14274
+                return false;
+            } break;
         case GGML_OP_CPY: {
             ggml_tensor *src = op->src[0];
             if ((op->type != GGML_TYPE_F32 && op->type != GGML_TYPE_F16) ||
@@ -2158,12 +2188,10 @@ static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev,
         case GGML_OP_MUL:
         case GGML_OP_DIV:
         case GGML_OP_RMS_NORM:
-        case GGML_OP_SCALE:
         case GGML_OP_SQR:
         case GGML_OP_SQRT:
         case GGML_OP_CLAMP:
         case GGML_OP_DIAG_MASK_INF:
-        case GGML_OP_SOFT_MAX:
         case GGML_OP_SUM_ROWS:
         case GGML_OP_ARGSORT:
         case GGML_OP_ACC:
@@ -2181,6 +2209,14 @@ static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev,
         case GGML_OP_PAD_REFLECT_1D:
         case GGML_OP_COUNT_EQUAL:
             return true;
+        case GGML_OP_SCALE:
+            float bias;
+            memcpy(&bias, (float*)op->op_params + 1, sizeof(float));
+            return bias == 0.0f; // TODO: support bias != 0.0f
+        case GGML_OP_SOFT_MAX:
+            // TODO: support broadcast
+            // ref: https://github.com/ggml-org/llama.cpp/pull/14435
+            return !op->src[1] || (op->src[1]->ne[2] == 1 && op->src[1]->ne[3] == 1);
         case GGML_OP_FLASH_ATTN_EXT:{
             // derived from [ggml-cuda.cu]
             if(op->src[1]->type != GGML_TYPE_F16 || op->src[2]->type != GGML_TYPE_F16){
@@ -2203,6 +2239,8 @@ static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev,
                 // DeepSeek MLA
                 return false;
             }
+            // TODO: support broadcast
+            // ref: https://github.com/ggml-org/llama.cpp/pull/14435
             if (op->src[0]->ne[3] != 1) {
                 return false;
             }
