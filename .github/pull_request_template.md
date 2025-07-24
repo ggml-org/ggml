@@ -1,1 +1,1 @@
-*Note: for `ggml`-related changes (including to the CMake build system), please open a PR in https://github.com/ggml-org/llama.cpp. Doing so will make your PR more visible and more likely to be reviewed.*
+*For changes to the core `ggml` library (including to the CMake build system), please open a PR in https://github.com/ggml-org/llama.cpp. Doing so will make your PR more visible, better tested and more likely to be reviewed.*
