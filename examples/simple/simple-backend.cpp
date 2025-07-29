@@ -99,7 +99,7 @@ struct ggml_cgraph * build_graph(const simple_model& model) {
     struct ggml_init_params params0 = {
         /*.mem_size   =*/ buf_size,
         /*.mem_buffer =*/ buf.data(),
-        /*.no_alloc   =*/ true, // the tensors will be allocated later by ggml_allocr_alloc_graph()
+        /*.no_alloc   =*/ true, // the tensors will be allocated later by ggml_gallocr_alloc_graph()
     };
 
     // create a temporally context to build the graph
