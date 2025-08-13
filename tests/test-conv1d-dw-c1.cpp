@@ -104,7 +104,8 @@ void load_model(test_model & model, bool use_gpu = false) {
     model.ctx = ggml_init(params);
 
     // create tensors
-    model.weight = ggml_new_tensor_3d(model.ctx, GGML_TYPE_F16,  K, IC, 1);
+    // A Pytorch grouped Conv1d weight parameter is of shape (out_channels, input_channels/groups, kernel_size)
+    model.weight = ggml_new_tensor_3d(model.ctx, GGML_TYPE_F16,  K, 1, IC);
     model.input = ggml_new_tensor_3d(model.ctx, GGML_TYPE_F32, IL, IC, N);
 
     // create a allocator
