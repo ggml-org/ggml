@@ -56,22 +56,7 @@ while read c; do
         ggml/CMakeLists.txt \
         ggml/src/CMakeLists.txt \
         ggml/cmake/FindSIMD.cmake \
-        ggml/src/ggml*.h \
-        ggml/src/ggml*.c \
-        ggml/src/ggml*.cpp \
-        ggml/src/gguf*.cpp \
-        ggml/src/ggml-blas/* \
-        ggml/src/ggml-cann/* \
-        ggml/src/ggml-cpu/* \
-        ggml/src/ggml-cuda/* \
-        ggml/src/ggml-hip/* \
-        ggml/src/ggml-kompute/* \
-        ggml/src/ggml-metal/* \
-        ggml/src/ggml-musa/* \
-        ggml/src/ggml-opencl/* \
-        ggml/src/ggml-rpc/* \
-        ggml/src/ggml-sycl/* \
-        ggml/src/ggml-vulkan/* \
+        ggml/src/ggml* \
         ggml/include/ggml*.h \
         ggml/include/gguf*.h \
         examples/common-ggml.h \
@@ -107,22 +92,7 @@ if [ -f $SRC_GGML/whisper-src.patch ]; then
     # ggml/src/CMakelists.txt   -> src/CMakeLists.txt
     # ggml/cmake/FindSIMD.cmake -> cmake/FindSIMD.cmake
     #
-    # ggml/src/ggml*.c          -> src/ggml*.c
-    # ggml/src/ggml*.cpp        -> src/ggml*.cpp
-    # ggml/src/ggml*.h          -> src/ggml*.h
-    # ggml/src/gguf*.cpp        -> src/gguf*.cpp
-    # ggml/src/ggml-blas/*      -> src/ggml-blas/*
-    # ggml/src/ggml-cann/*      -> src/ggml-cann/*
-    # ggml/src/ggml-cpu/*       -> src/ggml-cpu/*
-    # ggml/src/ggml-cuda/*      -> src/ggml-cuda/*
-    # ggml/src/ggml-hip/*       -> src/ggml-hip/*
-    # ggml/src/ggml-kompute/*   -> src/ggml-kompute/*
-    # ggml/src/ggml-metal/*     -> src/ggml-metal/*
-    # ggml/src/ggml-musa/*      -> src/ggml-musa/*
-    # ggml/src/ggml-opencl/*    -> src/ggml-opencl/*
-    # ggml/src/ggml-rpc/*       -> src/ggml-rpc/*
-    # ggml/src/ggml-sycl/*      -> src/ggml-sycl/*
-    # ggml/src/ggml-vulkan/*    -> src/ggml-vulkan/*
+    # ggml/src/ggml* -> src/ggml*
     #
     # ggml/include/ggml*.h -> include/ggml*.h
     # ggml/include/gguf*.h -> include/gguf*.h
@@ -139,22 +109,7 @@ if [ -f $SRC_GGML/whisper-src.patch ]; then
         -e 's/\/ggml\/CMakeLists\.txt/\/CMakeLists.txt/g' \
         -e 's/\/ggml\/src\/CMakeLists\.txt/\/src\/CMakeLists.txt/g' \
         -e 's/\/ggml\/cmake\/FindSIMD\.cmake/\/cmake\/FindSIMD.cmake/g' \
-        -e 's/\/ggml\/src\/ggml(.*)\.c/\/src\/ggml\1.c/g' \
-        -e 's/\/ggml\/src\/ggml(.*)\.cpp/\/src\/ggml\1.cpp/g' \
-        -e 's/\/ggml\/src\/ggml(.*)\.h/\/src\/ggml\1.h/g' \
-        -e 's/\/ggml\/src\/gguf(.*)\.cpp/\/src\/gguf\1.cpp/g' \
-        -e 's/\/ggml\/src\/ggml-blas\//\/src\/ggml-blas\//g' \
-        -e 's/\/ggml\/src\/ggml-cann\//\/src\/ggml-cann\//g' \
-        -e 's/\/ggml\/src\/ggml-cpu\//\/src\/ggml-cpu\//g' \
-        -e 's/\/ggml\/src\/ggml-cuda\//\/src\/ggml-cuda\//g' \
-        -e 's/\/ggml\/src\/ggml-hip\//\/src\/ggml-hip\//g' \
-        -e 's/\/ggml\/src\/ggml-kompute\//\/src\/ggml-kompute\//g' \
-        -e 's/\/ggml\/src\/ggml-metal\//\/src\/ggml-metal\//g' \
-        -e 's/\/ggml\/src\/ggml-musa\//\/src\/ggml-musa\//g' \
-        -e 's/\/ggml\/src\/ggml-opencl\//\/src\/ggml-opencl\//g' \
-        -e 's/\/ggml\/src\/ggml-rpc\//\/src\/ggml-rpc\//g' \
-        -e 's/\/ggml\/src\/ggml-sycl\//\/src\/ggml-sycl\//g' \
-        -e 's/\/ggml\/src\/ggml-vulkan\//\/src\/ggml-vulkan\//g' \
+        -e 's/\/ggml\/src\/ggml(.*)/\/src\/ggml\1/g' \
         -e 's/\/ggml\/include\/ggml(.*)\.h/\/include\/ggml\1.h/g' \
         -e 's/\/ggml\/include\/gguf(.*)\.h/\/include\/gguf\1.h/g' \
         -e 's/\/examples\/common\.h/\/examples\/common.h/g' \
