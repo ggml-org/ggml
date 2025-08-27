@@ -15,16 +15,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Configure CMake
-      run: |
-        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build source package
-      run: |
-        cmake --build build --target ggml_package
-        mkdir -p release
-        cp build/ggml-src.zip release/
-
     - name: Create Release
       id: create_release
       uses: ggml-org/action-create-release@v1
@@ -35,25 +25,3 @@ jobs:
           release_name: Release ${{ github.ref }}
           draft: false
           prerelease: false
-
-    - name: Upload release
-      id: upload_release
-      uses: actions/github-script@v3
-      with:
-        github-token: ${{secrets.GITHUB_TOKEN}}
-        script: |
-          const path = require('path');
-          const fs = require('fs');
-          const release_id = '${{ steps.create_release.outputs.id }}';
-          for (let file of await fs.readdirSync('./release')) {
-              if (path.extname(file) === '.zip') {
-                console.log('uploadReleaseAsset', file);
-                await github.repos.uploadReleaseAsset({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  release_id: release_id,
-                  name: file,
-                  data: await fs.readFileSync(`./release/${file}`)
-                });
-              }
-            }
