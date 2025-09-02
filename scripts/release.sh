@@ -172,12 +172,12 @@ fi
 echo ""
 
 # Create git tag
-echo "Step 5: Creating git tag..."
+echo "Step 5: Creating signed git tag..."
 if [ "$DRY_RUN" = true ]; then
-    echo "  [dry-run] Would create tag: v$NEW_VERSION with message 'Release version $NEW_VERSION'"
+    echo "  [dry-run] Would create signed tag: v$NEW_VERSION with message 'Release version $NEW_VERSION'"
 else
-    git tag -a "v$NEW_VERSION" -m "Release version $NEW_VERSION"
-    echo "✓ Created tag: v$NEW_VERSION"
+    git tag -s "v$NEW_VERSION" -m "Release version $NEW_VERSION"
+    echo "✓ Created signed tag: v$NEW_VERSION"
 fi
 echo ""
 
