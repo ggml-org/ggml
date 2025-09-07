@@ -9,6 +9,7 @@ compile_commands.json
 CMakeSettings.json
 .vs/
 .vscode/
+.idea/
 .clangd
 
 .venv/
