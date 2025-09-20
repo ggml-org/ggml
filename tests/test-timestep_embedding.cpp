@@ -56,9 +56,6 @@ struct ggml_tensor* new_timestep_embedding(struct ggml_context* ctx,
     // timesteps: [N,]
     // embedding: [dim, N]
     int actual_dim = dim;
-    if (dim % 2 != 0) {
-        actual_dim = dim + 1;
-    }
     struct ggml_tensor* embedding = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, actual_dim, timesteps->ne[0]);
     set_timestep_embedding(timesteps, embedding, dim, max_period);
     return embedding;
