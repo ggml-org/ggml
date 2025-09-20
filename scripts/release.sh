@@ -154,10 +154,10 @@ if [ "$DRY_RUN" = true ]; then
     echo "  [dry-run] Would update GGML_VERSION_PATCH to $NEW_PATCH"
     echo "  [dry-run] Would remove -dev suffix"
 else
-    sed -i "s/set(GGML_VERSION_MAJOR [0-9]*)/set(GGML_VERSION_MAJOR $NEW_MAJOR)/" CMakeLists.txt
-    sed -i "s/set(GGML_VERSION_MINOR [0-9]*)/set(GGML_VERSION_MINOR $NEW_MINOR)/" CMakeLists.txt
-    sed -i "s/set(GGML_VERSION_PATCH [0-9]*)/set(GGML_VERSION_PATCH $NEW_PATCH)/" CMakeLists.txt
-    sed -i 's/set(GGML_VERSION_DEV "-dev")/set(GGML_VERSION_DEV "")/' CMakeLists.txt
+    sed -i'' -e "s/set(GGML_VERSION_MAJOR [0-9]*)/set(GGML_VERSION_MAJOR $NEW_MAJOR)/" CMakeLists.txt
+    sed -i'' -e "s/set(GGML_VERSION_MINOR [0-9]*)/set(GGML_VERSION_MINOR $NEW_MINOR)/" CMakeLists.txt
+    sed -i'' -e "s/set(GGML_VERSION_PATCH [0-9]*)/set(GGML_VERSION_PATCH $NEW_PATCH)/" CMakeLists.txt
+    sed -i'' -e 's/set(GGML_VERSION_DEV "-dev")/set(GGML_VERSION_DEV "")/' CMakeLists.txt
 fi
 echo ""
 
@@ -190,7 +190,7 @@ case $VERSION_TYPE in
         if [ "$DRY_RUN" = true ]; then
             echo "  [dry-run] Would update GGML_VERSION_MINOR to $NEXT_DEV_MINOR"
         else
-            sed -i "s/set(GGML_VERSION_MINOR [0-9]*)/set(GGML_VERSION_MINOR $NEXT_DEV_MINOR)/" CMakeLists.txt
+            sed -i'' -e "s/set(GGML_VERSION_MINOR [0-9]*)/set(GGML_VERSION_MINOR $NEXT_DEV_MINOR)/" CMakeLists.txt
         fi
         ;;
     patch)
@@ -199,7 +199,7 @@ case $VERSION_TYPE in
         if [ "$DRY_RUN" = true ]; then
             echo "  [dry-run] Would update GGML_VERSION_PATCH to $NEXT_DEV_PATCH"
         else
-            sed -i "s/set(GGML_VERSION_PATCH [0-9]*)/set(GGML_VERSION_PATCH $NEXT_DEV_PATCH)/" CMakeLists.txt
+            sed -i'' -e "s/set(GGML_VERSION_PATCH [0-9]*)/set(GGML_VERSION_PATCH $NEXT_DEV_PATCH)/" CMakeLists.txt
         fi
         ;;
 esac
@@ -207,7 +207,7 @@ esac
 if [ "$DRY_RUN" = true ]; then
     echo "  [dry-run] Would add -dev suffix back"
 else
-    sed -i 's/set(GGML_VERSION_DEV "")/set(GGML_VERSION_DEV "-dev")/' CMakeLists.txt
+    sed -i'' -e 's/set(GGML_VERSION_DEV "")/set(GGML_VERSION_DEV "-dev")/' CMakeLists.txt
 fi
 echo ""
 
