@@ -185,7 +185,7 @@ echo ""
 echo "Step 6: Preparing for next development cycle..."
 case $VERSION_TYPE in
     major|minor)
-        NEXT_DEV_MINOR=$((NEW_MINOR + 1))
+        NEXT_DEV_MINOR=$((NEW_MINOR))
         NEXT_DEV_VERSION="$NEW_MAJOR.$NEXT_DEV_MINOR.0-dev"
         if [ "$DRY_RUN" = true ]; then
             echo "  [dry-run] Would update GGML_VERSION_MINOR to $NEXT_DEV_MINOR"
@@ -194,7 +194,7 @@ case $VERSION_TYPE in
         fi
         ;;
     patch)
-        NEXT_DEV_PATCH=$((NEW_PATCH + 1))
+        NEXT_DEV_PATCH=$((NEW_PATCH))
         NEXT_DEV_VERSION="$NEW_MAJOR.$NEW_MINOR.$NEXT_DEV_PATCH-dev"
         if [ "$DRY_RUN" = true ]; then
             echo "  [dry-run] Would update GGML_VERSION_PATCH to $NEXT_DEV_PATCH"
