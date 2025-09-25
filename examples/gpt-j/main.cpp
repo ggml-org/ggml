@@ -57,7 +57,7 @@ struct gptj_model {
     struct ggml_tensor * ln_f_g;
     struct ggml_tensor * ln_f_b;
 
-    struct ggml_tensor * wte; // position embedding
+    struct ggml_tensor * wte; // token embedding
 
     struct ggml_tensor * lmh_g; // language model head
     struct ggml_tensor * lmh_b; // language model bias
