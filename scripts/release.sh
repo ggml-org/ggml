@@ -159,7 +159,7 @@ prepare_release() {
     MINOR=$(grep "set(GGML_VERSION_MINOR" CMakeLists.txt | sed 's/.*MINOR \([0-9]*\).*/\1/')
     PATCH=$(grep "set(GGML_VERSION_PATCH" CMakeLists.txt | sed 's/.*PATCH \([0-9]*\).*/\1/')
 
-    echo "Current version: $MAJOR.$MINOR.$PATCH-dev"
+    echo "Current version: $MAJOR.$MINOR.$PATCH"
 
     # Calculate new version
     case $VERSION_TYPE in
@@ -202,12 +202,10 @@ prepare_release() {
         echo "  [dry-run] Would update GGML_VERSION_MAJOR to $NEW_MAJOR"
         echo "  [dry-run] Would update GGML_VERSION_MINOR to $NEW_MINOR"
         echo "  [dry-run] Would update GGML_VERSION_PATCH to $NEW_PATCH"
-        echo "  [dry-run] Would remove -dev suffix"
     else
         sed -i'' -e "s/set(GGML_VERSION_MAJOR [0-9]*)/set(GGML_VERSION_MAJOR $NEW_MAJOR)/" CMakeLists.txt
         sed -i'' -e "s/set(GGML_VERSION_MINOR [0-9]*)/set(GGML_VERSION_MINOR $NEW_MINOR)/" CMakeLists.txt
         sed -i'' -e "s/set(GGML_VERSION_PATCH [0-9]*)/set(GGML_VERSION_PATCH $NEW_PATCH)/" CMakeLists.txt
-        sed -i'' -e 's/set(GGML_VERSION_DEV "-dev")/set(GGML_VERSION_DEV "")/' CMakeLists.txt
     fi
     echo ""
 
@@ -251,17 +249,11 @@ finalize_release() {
     check_master_branch
     check_master_up_to_date
 
-    # Read current version from CMakeLists.txt (should not have -dev suffix)
+    # Read current version from CMakeLists.txt
     echo "Step 1: Reading current release version..."
     MAJOR=$(grep "set(GGML_VERSION_MAJOR" CMakeLists.txt | sed 's/.*MAJOR \([0-9]*\).*/\1/')
     MINOR=$(grep "set(GGML_VERSION_MINOR" CMakeLists.txt | sed 's/.*MINOR \([0-9]*\).*/\1/')
     PATCH=$(grep "set(GGML_VERSION_PATCH" CMakeLists.txt | sed 's/.*PATCH \([0-9]*\).*/\1/')
-    DEV_SUFFIX=$(grep "set(GGML_VERSION_DEV" CMakeLists.txt | sed 's/.*DEV "\([^"]*\)".*/\1/')
-
-    if [ "$DEV_SUFFIX" = "-dev" ]; then
-        echo "Error: Current version still has -dev suffix. Make sure the release candidate PR has been merged."
-        exit 1
-    fi
 
     RELEASE_VERSION="$MAJOR.$MINOR.$PATCH"
     echo "Release version: $RELEASE_VERSION"
@@ -277,54 +269,18 @@ finalize_release() {
     fi
     echo ""
 
-    # Create branch for next development version
-    DEV_BRANCH="ggml-dev-v$RELEASE_VERSION"
-    echo "Step 3: Creating development branch..."
-    if [ "$DRY_RUN" = true ]; then
-        echo "  [dry-run] Would create branch: $DEV_BRANCH"
-    else
-        git checkout -b "$DEV_BRANCH"
-        echo "✓ Created and switched to branch: $DEV_BRANCH"
-    fi
-    echo ""
-
-    # Add -dev suffix back (no version increment)
-    NEXT_DEV_VERSION="$RELEASE_VERSION-dev"
-    echo "Step 4: Adding -dev suffix for next development cycle ($NEXT_DEV_VERSION)..."
-    if [ "$DRY_RUN" = true ]; then
-        echo "  [dry-run] Would add -dev suffix"
-    else
-        sed -i'' -e 's/set(GGML_VERSION_DEV "")/set(GGML_VERSION_DEV "-dev")/' CMakeLists.txt
-    fi
-    echo ""
-
-    # Commit development version
-    echo "Step 5: Committing development version..."
-    if [ "$DRY_RUN" = true ]; then
-        echo "  [dry-run] Would commit: 'ggml : prepare for development of $NEXT_DEV_VERSION'"
-    else
-        git add CMakeLists.txt
-        git commit -m "ggml : prepare for development of $NEXT_DEV_VERSION"
-    fi
-    echo ""
 
     echo ""
     if [ "$DRY_RUN" = true ]; then
         echo "[dry-run] Summary (no changes were made):"
         echo "  • Would have created tag: v$RELEASE_VERSION"
-        echo "  • Would have created branch: $DEV_BRANCH"
-        echo "  • Would have prepared next development version: $NEXT_DEV_VERSION"
     else
         echo "Release finalization completed!"
         echo "Summary:"
         echo "  • Created signed tag: v$RELEASE_VERSION"
-        echo "  • Created branch: $DEV_BRANCH"
-        echo "  • Prepared next development version: $NEXT_DEV_VERSION"
         echo ""
         echo "Next steps:"
         echo "  • Push tag to remote: git push origin v$RELEASE_VERSION"
-        echo "  • Push development branch: git push origin $DEV_BRANCH"
-        echo "  • Create PR for development version manually"
         echo "  • The release is now complete!"
     fi
 }
