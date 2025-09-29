@@ -374,6 +374,7 @@ fi
 
 
 ret=0
+
 test $ret -eq 0 && gg_run ctest_debug
 test $ret -eq 0 && gg_run ctest_release
 
@@ -386,5 +387,7 @@ if [ -z $GG_BUILD_LOW_PERF ]; then
     # run tests meant for low-perf runners
     date
 fi
+
+cat $OUT/README.md
 
 exit $ret
