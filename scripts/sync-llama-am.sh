@@ -131,22 +131,22 @@ if [ -f $SRC_GGML/llama-src.patch ]; then
     # scripts/gen-authors.sh -> scripts/gen-authors.sh
 
     cat llama-src.patch | sed -E \
-        -e 's/([[:space:]]| [ab]\/)ggml\/CMakeLists\.txt/\1CMakeLists.txt/g' \
-        -e 's/([[:space:]]| [ab]\/)ggml\/src\/CMakeLists\.txt/\1src\/CMakeLists.txt/g' \
-        -e 's/([[:space:]]| [ab]\/)ggml\/cmake\/BuildTypes\.cmake/\1cmake\/BuildTypes\.cmake/g' \
-        -e 's/([[:space:]]| [ab]\/)ggml\/cmake\/GitVars\.cmake/\1cmake\/GitVars\.cmake/g' \
-        -e 's/([[:space:]]| [ab]\/)ggml\/cmake\/common\.cmake/\1cmake\/common\.cmake/g' \
-        -e 's/([[:space:]]| [ab]\/)ggml\/cmake\/ggml-config\.cmake\.in/\1cmake\/ggml-config\.cmake\.in/g' \
-        -e 's/([[:space:]]| [ab]\/)ggml\/src\/ggml-cpu\/cmake\/FindSIMD\.cmake/\1src\/ggml-cpu\/cmake\/FindSIMD\.cmake/g' \
-        -e 's/([[:space:]]| [ab]\/)ggml\/src\/ggml(.*)/\1src\/ggml\2/g' \
-        -e 's/([[:space:]]| [ab]\/)ggml\/include\/ggml(.*)\.h/\1include\/ggml\2.h/g' \
-        -e 's/([[:space:]]| [ab]\/)ggml\/include\/gguf(.*)\.h/\1include\/gguf\2.h/g' \
-        -e 's/([[:space:]]| [ab]\/)tests\/test-opt\.cpp/\1tests\/test-opt.cpp/g' \
-        -e 's/([[:space:]]| [ab]\/)tests\/test-quantize-fns\.cpp/\1tests\/test-quantize-fns.cpp/g' \
-        -e 's/([[:space:]]| [ab]\/)tests\/test-quantize-perf\.cpp/\1tests\/test-quantize-perf.cpp/g' \
-        -e 's/([[:space:]]| [ab]\/)tests\/test-backend-ops\.cpp/\1tests\/test-backend-ops.cpp/g' \
-        -e 's/([[:space:]]| [ab]\/)LICENSE/\1LICENSE/g' \
-        -e 's/([[:space:]]| [ab]\/)scripts\/gen-authors\.sh/\1scripts\/gen-authors.sh/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/CMakeLists\.txt/\1CMakeLists.txt/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/src\/CMakeLists\.txt/\1src\/CMakeLists.txt/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/cmake\/BuildTypes\.cmake/\1cmake\/BuildTypes\.cmake/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/cmake\/GitVars\.cmake/\1cmake\/GitVars\.cmake/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/cmake\/common\.cmake/\1cmake\/common\.cmake/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/cmake\/ggml-config\.cmake\.in/\1cmake\/ggml-config\.cmake\.in/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/src\/ggml-cpu\/cmake\/FindSIMD\.cmake/\1src\/ggml-cpu\/cmake\/FindSIMD\.cmake/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/src\/ggml(.*)/\1src\/ggml\2/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/include\/ggml(.*)\.h/\1include\/ggml\2.h/g' \
+        -e 's/(^[[:space:]]| [ab]\/)ggml\/include\/gguf(.*)\.h/\1include\/gguf\2.h/g' \
+        -e 's/(^[[:space:]]| [ab]\/)tests\/test-opt\.cpp/\1tests\/test-opt.cpp/g' \
+        -e 's/(^[[:space:]]| [ab]\/)tests\/test-quantize-fns\.cpp/\1tests\/test-quantize-fns.cpp/g' \
+        -e 's/(^[[:space:]]| [ab]\/)tests\/test-quantize-perf\.cpp/\1tests\/test-quantize-perf.cpp/g' \
+        -e 's/(^[[:space:]]| [ab]\/)tests\/test-backend-ops\.cpp/\1tests\/test-backend-ops.cpp/g' \
+        -e 's/(^[[:space:]]| [ab]\/)LICENSE/\1LICENSE/g' \
+        -e 's/(^[[:space:]]| [ab]\/)scripts\/gen-authors\.sh/\1scripts\/gen-authors.sh/g' \
         > llama-src.patch.tmp
     mv llama-src.patch.tmp llama-src.patch
 
