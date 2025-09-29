@@ -36,15 +36,35 @@ SRC=`pwd`
 CMAKE_EXTRA=""
 CTEST_EXTRA=""
 
-if [ ! -z ${GG_BUILD_CUDA} ]; then
-    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_CUDA=ON"
+if [ ! -z ${GG_BUILD_METAL} ]; then
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_METAL=ON"
 fi
 
-if [ ! -z ${GG_BUILD_METAL} ]; then
-    # TODO: this should use -DGGML_METAL_SHADER_DEBUG=ON instead, but currently it fails because
-    #       the binaries cannot locate default.metallib eventhough it is in bin/. cannot figure out
-    #       why this is happening, so temporary workaround is to use -DGGML_METAL_EMBED_LIBRARY=ON
-    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+if [ ! -z ${GG_BUILD_CUDA} ]; then
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_CUDA=ON"
+
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d '.')
+        if [[ -n "$CUDA_ARCH" && "$CUDA_ARCH" =~ ^[0-9]+$ ]]; then
+            CMAKE_EXTRA="${CMAKE_EXTRA} -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}"
+        else
+            echo "Warning: Using fallback CUDA architectures"
+            CMAKE_EXTRA="${CMAKE_EXTRA} -DCMAKE_CUDA_ARCHITECTURES=61;70;75;80;86;89"
+        fi
+    else
+        echo "Error: nvidia-smi not found, cannot build with CUDA"
+        exit 1
+    fi
+fi
+
+if [ ! -z ${GG_BUILD_ROCM} ]; then
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_HIP=ON"
+    if [ -z ${GG_BUILD_AMDGPU_TARGETS} ]; then
+        echo "Missing GG_BUILD_AMDGPU_TARGETS, please set it to your GPU architecture (e.g. gfx90a, gfx1100, etc.)"
+        exit 1
+    fi
+
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DAMDGPU_TARGETS=${GG_BUILD_AMDGPU_TARGETS}"
 fi
 
 if [ ! -z ${GG_BUILD_SYCL} ]; then
@@ -53,11 +73,38 @@ if [ ! -z ${GG_BUILD_SYCL} ]; then
         echo "source /opt/intel/oneapi/setvars.sh"
         exit 1
     fi
+    # Use only main GPU
     export ONEAPI_DEVICE_SELECTOR="level_zero:0"
+    # Enable sysman for correct memory reporting
     export ZES_ENABLE_SYSMAN=1
-    # No plan to implement backward pass for now / disable test-opt
-    CTEST_EXTRA="-E test-opt"
+    # to circumvent precision issues on CPY operations
+    export SYCL_PROGRAM_COMPILE_OPTIONS="-cl-fp32-correctly-rounded-divide-sqrt"
     CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_SYCL=1 -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx -DGGML_SYCL_F16=ON"
+fi
+
+if [ ! -z ${GG_BUILD_VULKAN} ]; then
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_VULKAN=1"
+
+    # if on Mac, disable METAL
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_METAL=OFF -DGGML_BLAS=OFF"
+    fi
+
+fi
+
+if [ ! -z ${GG_BUILD_WEBGPU} ]; then
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_WEBGPU=1"
+fi
+
+if [ ! -z ${GG_BUILD_MUSA} ]; then
+    # Use qy1 by default (MTT S80)
+    MUSA_ARCH=${MUSA_ARCH:-21}
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_MUSA=ON -DMUSA_ARCHITECTURES=${MUSA_ARCH}"
+fi
+
+if [ ! -z ${GG_BUILD_NO_SVE} ]; then
+    # arm 9 and newer enables sve by default, adjust these flags depending on the cpu used
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.5-a+fp16+i8mm"
 fi
 
 ## helpers
@@ -335,9 +382,7 @@ fi
 
 
 ret=0
-if [ -z ${GG_BUILD_SYCL}]; then
-    test $ret -eq 0 && gg_run ctest_debug
-fi
+test $ret -eq 0 && gg_run ctest_debug
 test $ret -eq 0 && gg_run ctest_release
 
 if [ ! -z ${GG_BUILD_METAL} ]; then
