@@ -363,7 +363,7 @@ function gg_sum_yolo {
 
 ## main
 
-if [ -z ${GG_BUILD_LOW_PERF} ]; then
+if true ; then
     # Create symlink: ./ggml/models-mnt -> $MNT/models/models-mnt
     rm -rf ${SRC}/models-mnt
     mnt_models=${MNT}/models
@@ -389,18 +389,14 @@ if [ ! -z ${GG_BUILD_METAL} ]; then
     export GGML_METAL_PATH_RESOURCES="${SRC}/build-ci-release/bin"
 fi
 
-if [ -z ${GG_BUILD_NO_DOWNLOAD} ]; then
-    test $ret -eq 0 && gg_run gpt_2
-    #test $ret -eq 0 && gg_run mnist
-    test $ret -eq 0 && gg_run sam
-    test $ret -eq 0 && gg_run yolo
-fi
+test $ret -eq 0 && gg_run gpt_2
+#test $ret -eq 0 && gg_run mnist
+test $ret -eq 0 && gg_run sam
+test $ret -eq 0 && gg_run yolo
 
 if [ -z $GG_BUILD_LOW_PERF ]; then
-    if [ -z ${GG_BUILD_VRAM_GB} ] || [ ${GG_BUILD_VRAM_GB} -ge 16 ]; then
-        # run tests that require GPU with at least 16GB of VRAM
-        date
-    fi
+    # run tests meant for low-perf runners
+    date
 fi
 
 exit $ret
