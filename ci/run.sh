@@ -159,13 +159,9 @@ function gg_run_ctest_debug {
     set -e
 
     (time cmake -DCMAKE_BUILD_TYPE=Debug ${CMAKE_EXTRA} ..     ) 2>&1 | tee -a $OUT/${ci}-cmake.log
-    (time make -j                                              ) 2>&1 | tee -a $OUT/${ci}-make.log
+    (time make -j$(nproc)                                      ) 2>&1 | tee -a $OUT/${ci}-make.log
 
-    if [ ! -z ${GG_BUILD_METAL} ]; then
-        export GGML_METAL_PATH_RESOURCES="$(pwd)/bin"
-    fi
-
-    (time ctest ${CTEST_EXTRA} --output-on-failure -E test-opt ) 2>&1 | tee -a $OUT/${ci}-ctest.log
+    (time ctest ${CTEST_EXTRA} --output-on-failure -E "test-opt|test-backend-ops" ) 2>&1 | tee -a $OUT/${ci}-ctest.log
 
     set +e
 }
@@ -191,11 +187,7 @@ function gg_run_ctest_release {
     set -e
 
     (time cmake -DCMAKE_BUILD_TYPE=Release ${CMAKE_EXTRA} ..   ) 2>&1 | tee -a $OUT/${ci}-cmake.log
-    (time make -j                                              ) 2>&1 | tee -a $OUT/${ci}-make.log
-
-    if [ ! -z ${GG_BUILD_METAL} ]; then
-        export GGML_METAL_PATH_RESOURCES="$(pwd)/bin"
-    fi
+    (time make -j$(nproc)                                      ) 2>&1 | tee -a $OUT/${ci}-make.log
 
     if [ -z $GG_BUILD_LOW_PERF ]; then
         (time ctest ${CTEST_EXTRA} --output-on-failure ) 2>&1 | tee -a $OUT/${ci}-ctest.log
@@ -384,10 +376,6 @@ fi
 ret=0
 test $ret -eq 0 && gg_run ctest_debug
 test $ret -eq 0 && gg_run ctest_release
-
-if [ ! -z ${GG_BUILD_METAL} ]; then
-    export GGML_METAL_PATH_RESOURCES="${SRC}/build-ci-release/bin"
-fi
 
 test $ret -eq 0 && gg_run gpt_2
 #test $ret -eq 0 && gg_run mnist
