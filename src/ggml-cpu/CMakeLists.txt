@@ -42,6 +42,8 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
         ggml-cpu/binary-ops.cpp
         ggml-cpu/unary-ops.h
         ggml-cpu/unary-ops.cpp
+        ggml-cpu/unary-ops.inc
+        ggml-cpu/unary-ops-ffast-math.cpp
         ggml-cpu/simd-mappings.h
         ggml-cpu/vec.h
         ggml-cpu/vec.cpp
@@ -78,6 +80,10 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
             set(GGML_OPENMP_ENABLED "OFF" CACHE INTERNAL "")
             message(WARNING "OpenMP not found")
         endif()
+    endif()
+
+    if (GGML_CPU_FFAST_MATH AND NOT MSVC)
+        set_source_files_properties(ggml-cpu/unary-ops-ffast-math.cpp PROPERTIES COMPILE_FLAGS "-ffast-math $<$<CONFIG:RelWithDebInfo>:-O3>")
     endif()
 
     if (GGML_LLAMAFILE)
