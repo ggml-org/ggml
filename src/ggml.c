@@ -4558,6 +4558,7 @@ struct ggml_tensor * ggml_conv_2d_dw_direct(
 
     int32_t params[] = { stride0, stride1, pad0, pad1, dilation0, dilation1 };
     ggml_set_op_params(result, params, sizeof(params));
+    ggml_set_op_params_i32(result, 6, 0);
 
     result->op     = GGML_OP_CONV_2D_DW;
     result->src[0] = a;
@@ -4595,6 +4596,7 @@ struct ggml_tensor * ggml_conv_2d_direct(
     ggml_set_op_params_i32(result, 3, p1);
     ggml_set_op_params_i32(result, 4, d0);
     ggml_set_op_params_i32(result, 5, d1);
+    ggml_set_op_params_i32(result, 6, 0);
 
     result->op = GGML_OP_CONV_2D;
     result->src[0] = a;
@@ -4822,6 +4824,13 @@ struct ggml_tensor * ggml_interpolate(
     return ggml_interpolate_impl(ctx, a, ne0, ne1, ne2, ne3, mode);
 }
 
+GGML_API void ggml_set_pad_mode(struct ggml_tensor * tensor, enum ggml_pad_mode mode) {
+    GGML_ASSERT(tensor != NULL);
+    GGML_ASSERT(tensor->op == GGML_OP_PAD);
+    GGML_ASSERT(mode == GGML_PAD_MODE_ZERO || mode == GGML_PAD_MODE_CIRCULAR);
+    ggml_set_op_params_i32(tensor, 8, (int32_t) mode);
+}
+
 // ggml_pad
 
 struct ggml_tensor * ggml_pad(
@@ -4861,10 +4870,28 @@ struct ggml_tensor * ggml_pad_ext(
     ggml_set_op_params_i32(result, 6, lp3);
     ggml_set_op_params_i32(result, 7, rp3);
 
-
     result->op     = GGML_OP_PAD;
     result->src[0] = a;
 
+    ggml_set_pad_mode(result, GGML_PAD_MODE_ZERO);
+
+    return result;
+}
+
+struct ggml_tensor * ggml_pad_circular(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        int                  lp0,
+        int                  rp0,
+        int                  lp1,
+        int                  rp1,
+        int                  lp2,
+        int                  rp2,
+        int                  lp3,
+        int                  rp3
+        ) {
+    struct ggml_tensor * result = ggml_pad_ext(ctx, a, lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3);
+    ggml_set_pad_mode(result, GGML_PAD_MODE_CIRCULAR);
     return result;
 }
 

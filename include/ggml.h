@@ -2102,6 +2102,13 @@ extern "C" {
             int64_t               ne3,
             uint32_t              mode); // ggml_scale_mode [ | ggml_scale_flag...]
 
+    enum ggml_pad_mode {
+        GGML_PAD_MODE_ZERO     = 0,
+        GGML_PAD_MODE_CIRCULAR = 1,
+    };
+
+    GGML_API void ggml_set_pad_mode(struct ggml_tensor * tensor, enum ggml_pad_mode mode);
+
     // pad each dimension with zeros: [x, ..., x] -> [x, ..., x, 0, ..., 0]
     GGML_API struct ggml_tensor * ggml_pad(
             struct ggml_context * ctx,
@@ -2112,6 +2119,19 @@ extern "C" {
             int                  p3);
 
     GGML_API struct ggml_tensor * ggml_pad_ext(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            int                  lp0,
+            int                  rp0,
+            int                  lp1,
+            int                  rp1,
+            int                  lp2,
+            int                  rp2,
+            int                  lp3,
+            int                  rp3
+            );
+
+    GGML_API struct ggml_tensor * ggml_pad_circular(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
             int                  lp0,

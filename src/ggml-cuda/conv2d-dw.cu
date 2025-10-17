@@ -8,6 +8,7 @@ struct conv_params {
     int padding_x, padding_y;
     int dilation_x, dilation_y;
     int channels, batches;
+    int circular;
 };
 
 struct kernel_bounds {
@@ -15,16 +16,31 @@ struct kernel_bounds {
     int x_min, x_max;
 };
 
+__device__ __forceinline__ int wrap_coord(int coord, int size) {
+    if (size == 0) {
+        return 0;
+    }
+    int mod = coord % size;
+    return mod < 0 ? mod + size : mod;
+}
+
 __device__ __forceinline__ kernel_bounds calculate_kernel_bounds(int out_x, int out_y, const conv_params & params) {
     kernel_bounds bounds;
-    bounds.y_min = max(0, (params.padding_y - out_y * params.stride_y + params.dilation_y - 1) / params.dilation_y);
-    bounds.y_max =
-        min(params.kernel_h,
-            (params.in_h + params.padding_y - out_y * params.stride_y + params.dilation_y - 1) / params.dilation_y);
-    bounds.x_min = max(0, (params.padding_x - out_x * params.stride_x + params.dilation_x - 1) / params.dilation_x);
-    bounds.x_max =
-        min(params.kernel_w,
-            (params.in_w + params.padding_x - out_x * params.stride_x + params.dilation_x - 1) / params.dilation_x);
+    if (params.circular) {
+        bounds.y_min = 0;
+        bounds.y_max = params.kernel_h;
+        bounds.x_min = 0;
+        bounds.x_max = params.kernel_w;
+    } else {
+        bounds.y_min = max(0, (params.padding_y - out_y * params.stride_y + params.dilation_y - 1) / params.dilation_y);
+        bounds.y_max =
+            min(params.kernel_h,
+                (params.in_h + params.padding_y - out_y * params.stride_y + params.dilation_y - 1) / params.dilation_y);
+        bounds.x_min = max(0, (params.padding_x - out_x * params.stride_x + params.dilation_x - 1) / params.dilation_x);
+        bounds.x_max =
+            min(params.kernel_w,
+                (params.in_w + params.padding_x - out_x * params.stride_x + params.dilation_x - 1) / params.dilation_x);
+    }
     return bounds;
 }
 
@@ -83,7 +99,7 @@ __global__ void conv2d_dw_kernel(const T * __restrict__ input, const T * __restr
                                  const int in_w, const int in_h, const int out_w, const int out_h,
                                  const int kernel_w, const int kernel_h, const int stride_x, const int stride_y,
                                  const int padding_x, const int padding_y, const int dilation_x, const int dilation_y,
-                                 const int channels, const int batches) {
+                                 const int channels, const int batches, const int circular) {
     const int global_idx     = blockIdx.x * blockDim.x + threadIdx.x;
     const int total_elements = batches * channels * out_h * out_w;
 
@@ -92,7 +108,7 @@ __global__ void conv2d_dw_kernel(const T * __restrict__ input, const T * __restr
     }
 
     conv_params params = { in_w,     in_h,      out_w,     out_h,      kernel_w,   kernel_h, stride_x,
-                           stride_y, padding_x, padding_y, dilation_x, dilation_y, channels, batches };
+                           stride_y, padding_x, padding_y, dilation_x, dilation_y, channels, batches, circular };
 
     int batch_idx, channel_idx, out_y_idx, out_x_idx;
     Layout::unpack_indices(global_idx, params, batch_idx, channel_idx, out_y_idx, out_x_idx);
@@ -102,9 +118,25 @@ __global__ void conv2d_dw_kernel(const T * __restrict__ input, const T * __restr
 
     for (int kern_y = bounds.y_min; kern_y < bounds.y_max; ++kern_y) {
         int in_y_idx = calculate_input_coord(out_y_idx, kern_y, params.stride_y, params.dilation_y, params.padding_y);
+        if (params.circular) {
+            if (params.in_h == 0) {
+                continue;
+            }
+            in_y_idx = wrap_coord(in_y_idx, params.in_h);
+        } else if (in_y_idx < 0 || in_y_idx >= params.in_h) {
+            continue;
+        }
 
         for (int kern_x = bounds.x_min; kern_x < bounds.x_max; ++kern_x) {
             int in_x_idx = calculate_input_coord(out_x_idx, kern_x, params.stride_x, params.dilation_x, params.padding_x);
+            if (params.circular) {
+                if (params.in_w == 0) {
+                    continue;
+                }
+                in_x_idx = wrap_coord(in_x_idx, params.in_w);
+            } else if (in_x_idx < 0 || in_x_idx >= params.in_w) {
+                continue;
+            }
 
             const T input_val  = input[Layout::input_index(batch_idx, channel_idx, in_y_idx, in_x_idx, params)];
             const T kernel_val = kernel[Layout::kernel_index(channel_idx, kern_y, kern_x, params)];
@@ -132,6 +164,7 @@ void ggml_cuda_op_conv2d_dw(ggml_backend_cuda_context & ctx, ggml_tensor * dst) 
     const int       padding_y  = p[3];
     const int       dilation_x = p[4];
     const int       dilation_y = p[5];
+    const int       circular   = ggml_get_op_params_i32(dst, 6);
 
     const int in_w     = input->ne[0];
     const int in_h     = input->ne[1];
@@ -150,11 +183,11 @@ void ggml_cuda_op_conv2d_dw(ggml_backend_cuda_context & ctx, ggml_tensor * dst) 
     if (ggml_is_contiguous(input)) {
         conv2d_dw_kernel<float, whcn_layout><<<blocks, CUDA_CONV2D_DW_BLOCK_SIZE, 0, st>>>(
             x_d, w_d, y_d, in_w, in_h, out_w, out_h, kernel_w, kernel_h, stride_x, stride_y, padding_x, padding_y,
-            dilation_x, dilation_y, channels, batches);
+            dilation_x, dilation_y, channels, batches, circular);
     } else if (ggml_is_contiguous_channels(input)) {
         conv2d_dw_kernel<float, cwhn_layout><<<blocks, CUDA_CONV2D_DW_BLOCK_SIZE, 0, st>>>(
             x_d, w_d, y_d, in_w, in_h, out_w, out_h, kernel_w, kernel_h, stride_x, stride_y, padding_x, padding_y,
-            dilation_x, dilation_y, channels, batches);
+            dilation_x, dilation_y, channels, batches, circular);
     } else {
         GGML_ABORT("Unsupported memory layout for conv_2d_dw");
     }
