@@ -17,11 +17,7 @@ struct kernel_bounds {
 };
 
 __device__ __forceinline__ int wrap_coord(int coord, int size) {
-    if (size == 0) {
-        return 0;
-    }
-    int mod = coord % size;
-    return mod < 0 ? mod + size : mod;
+    return (coord+size) % size; // +size to fix negative numbers giving incorrect mod
 }
 
 __device__ __forceinline__ kernel_bounds calculate_kernel_bounds(int out_x, int out_y, const conv_params & params) {
@@ -115,13 +111,11 @@ __global__ void conv2d_dw_kernel(const T * __restrict__ input, const T * __restr
 
     T accumulator = 0;
     kernel_bounds bounds = calculate_kernel_bounds(out_x_idx, out_y_idx, params);
+    
 
     for (int kern_y = bounds.y_min; kern_y < bounds.y_max; ++kern_y) {
         int in_y_idx = calculate_input_coord(out_y_idx, kern_y, params.stride_y, params.dilation_y, params.padding_y);
         if (params.circular) {
-            if (params.in_h == 0) {
-                continue;
-            }
             in_y_idx = wrap_coord(in_y_idx, params.in_h);
         } else if (in_y_idx < 0 || in_y_idx >= params.in_h) {
             continue;
@@ -130,9 +124,6 @@ __global__ void conv2d_dw_kernel(const T * __restrict__ input, const T * __restr
         for (int kern_x = bounds.x_min; kern_x < bounds.x_max; ++kern_x) {
             int in_x_idx = calculate_input_coord(out_x_idx, kern_x, params.stride_x, params.dilation_x, params.padding_x);
             if (params.circular) {
-                if (params.in_w == 0) {
-                    continue;
-                }
                 in_x_idx = wrap_coord(in_x_idx, params.in_w);
             } else if (in_x_idx < 0 || in_x_idx >= params.in_w) {
                 continue;
@@ -164,7 +155,7 @@ void ggml_cuda_op_conv2d_dw(ggml_backend_cuda_context & ctx, ggml_tensor * dst) 
     const int       padding_y  = p[3];
     const int       dilation_x = p[4];
     const int       dilation_y = p[5];
-    const int       circular   = ggml_get_op_params_i32(dst, 6);
+    const int       circular   = p[6];
 
     const int in_w     = input->ne[0];
     const int in_h     = input->ne[1];

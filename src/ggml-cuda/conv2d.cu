@@ -19,12 +19,8 @@ struct kernel_bounds {
     int64_t x_min, x_max;
 };
 
-__device__ __forceinline__ int64_t wrap_coord(int64_t coord, int64_t size) {
-    if (size == 0) {
-        return 0;
-    }
-    int64_t mod = coord % size;
-    return mod < 0 ? mod + size : mod;
+__device__ __forceinline__ int wrap_coord(int coord, int size) {
+    return (coord+size) % size; // +size to fix negative numbers giving incorrect mod
 }
 
 __device__ __forceinline__ int64_t max64(int64_t a, int64_t b) {
@@ -42,12 +38,13 @@ __device__ __forceinline__ kernel_bounds calculate_kernel_bounds(int64_t out_x, 
         bounds.y_max = P.KH;
         bounds.x_min = 0;
         bounds.x_max = P.KW;
-        return bounds;
     }
-    bounds.y_min = max64(0, (P.PD_Y - out_y * P.ST_Y + P.DL_Y - 1) / P.DL_Y);
-    bounds.y_max = min64(P.KH, (P.IH + P.PD_Y - out_y * P.ST_Y + P.DL_Y - 1) / P.DL_Y);
-    bounds.x_min = max64(0, (P.PD_X - out_x * P.ST_X + P.DL_X - 1) / P.DL_X);
-    bounds.x_max = min64(P.KW, (P.IW + P.PD_X - out_x * P.ST_X + P.DL_X - 1) / P.DL_X);
+    else {
+        bounds.y_min = max64(0, (P.PD_Y - out_y * P.ST_Y + P.DL_Y - 1) / P.DL_Y);
+        bounds.y_max = min64(P.KH, (P.IH + P.PD_Y - out_y * P.ST_Y + P.DL_Y - 1) / P.DL_Y);
+        bounds.x_min = max64(0, (P.PD_X - out_x * P.ST_X + P.DL_X - 1) / P.DL_X);
+        bounds.x_max = min64(P.KW, (P.IW + P.PD_X - out_x * P.ST_X + P.DL_X - 1) / P.DL_X);
+    }
     return bounds;
 }
 
@@ -107,25 +104,14 @@ static __global__ void conv2d_kernel(const float * __restrict__ input,
         for (int64_t ky = bounds.y_min; ky < bounds.y_max; ++ky) {
             int64_t in_y = calculate_input_coord(out_y, ky, P.ST_Y, P.DL_Y, P.PD_Y);
             if (P.circular) {
-                if (P.IH == 0) {
-                    continue;
-                }
                 in_y = wrap_coord(in_y, P.IH);
-            } else if (in_y < 0 || in_y >= P.IH) {
-                continue;
             }
 
             for (int64_t kx = bounds.x_min; kx < bounds.x_max; ++kx) {
                 int64_t in_x = calculate_input_coord(out_x, kx, P.ST_X, P.DL_X, P.PD_X);
                 if (P.circular) {
-                    if (P.IW == 0) {
-                        continue;
-                    }
                     in_x = wrap_coord(in_x, P.IW);
-                } else if (in_x < 0 || in_x >= P.IW) {
-                    continue;
                 }
-
                 const float input_val = input[Layout::input_index(n, c_in, in_y, in_x, P)];
                 const T kernel_val = kernel[Layout::kernel_index(c_out, c_in, ky, kx, P)];
                 acc += (input_val * ggml_cuda_cast<float>(kernel_val));
@@ -173,8 +159,7 @@ void ggml_cuda_op_conv2d(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
     const int       PD_Y = p[3];  // padding_y
     const int       DL_X = p[4];  // dilation_x
     const int       DL_Y = p[5];  // dilation_y
-
-    const int circular = ggml_get_op_params_i32(dst, 6);
+    const int   circular = p[6];  // circular
 
     const int IW = input->ne[0];   // input_w
     const int IH = input->ne[1];   // input_h
