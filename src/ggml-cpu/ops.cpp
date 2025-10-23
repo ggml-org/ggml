@@ -10,14 +10,6 @@
 #include <float.h>
 #include <algorithm>
 
-static inline int64_t ggml_wrap_coord(int64_t coord, int64_t size) {
-    if (size <= 0) {
-        return 0;
-    }
-    int64_t mod = coord % size;
-    return mod < 0 ? mod + size : mod;
-}
-
 // ggml_compute_forward_dup
 
 static void ggml_compute_forward_dup_same_cont(
@@ -6668,6 +6660,12 @@ static void ggml_call_mul_mat(ggml_type type, const ggml_compute_params * params
     ggml_compute_forward_mul_mat(params, &dst);
 }
 
+// ggml_wrap_coord 
+
+static inline int64_t ggml_wrap_coord(int64_t coord, int64_t size) {
+    return (coord  + size) % size; // adding size avoids negative number weirdness
+}
+
 // ggml_compute_forward_conv_2d
 
 static void ggml_compute_forward_conv_2d_impl(const ggml_compute_params * params,
@@ -6747,12 +6745,10 @@ static void ggml_compute_forward_conv_2d_impl(const ggml_compute_params * params
 
                         float src_val = 0.0f;
                         if (circular) {
-                            if (src_h > 0 && src_w > 0) {
-                                const int64_t sy_wrapped = ggml_wrap_coord(sy, src_h);
-                                const int64_t sx_wrapped = ggml_wrap_coord(sx, src_w);
-                                const float * src_ptr = (const float *)((const char *)src_base + sx_wrapped * src->nb[0] + sy_wrapped * src->nb[1] + ic * src->nb[2]);
-                                src_val               = *src_ptr;
-                            }
+                            const int64_t sy_wrapped = ggml_wrap_coord(sy, src_h);
+                            const int64_t sx_wrapped = ggml_wrap_coord(sx, src_w);
+                            const float * src_ptr = (const float *)((const char *)src_base + sx_wrapped * src->nb[0] + sy_wrapped * src->nb[1] + ic * src->nb[2]);
+                            src_val               = *src_ptr;
                         } else if (sy >= 0 && sy < src_h && sx >= 0 && sx < src_w) {
                             const float * src_ptr = (const float *)((const char *)src_base + sx * src->nb[0] + sy * src->nb[1] + ic * src->nb[2]);
                             src_val               = *src_ptr;
@@ -7108,9 +7104,6 @@ static void ggml_compute_forward_conv_2d_dw_cwhn(
                 for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
                     int64_t src_y = src_y_base + knl_y * p.dilation_y;
                     if (circular) {
-                        if (p.src_h == 0) {
-                            continue;
-                        }
                         src_y = ggml_wrap_coord(src_y, p.src_h);
                     } else if (src_y < 0 || src_y >= p.src_h) {
                         continue;
