@@ -1,5 +1,9 @@
 #include "pad.cuh"
 
+__device__ __forceinline__ int64_t wrap_coord(int64_t coord, int64_t size) {
+    return (coord+size) % size; // +size to fix negative numbers giving incorrect mod
+}
+
 static __global__ void pad_f32(const float * src, float * dst,
                                const int lp0, const int rp0, const int lp1, const int rp1,
                                const int lp2, const int rp2, const int lp3, const int rp3,
@@ -19,24 +23,38 @@ static __global__ void pad_f32(const float * src, float * dst,
 
     // operation
     const int64_t dst_idx = i3*(ne0*ne1*ne2) + i2*(ne0*ne1) + i1*ne0 + i0;
-    if ((i0 >= lp0 && i0 < ne0 - rp0) &&
-        (i1 >= lp1 && i1 < ne1 - rp1) &&
-        (i2 >= lp2 && i2 < ne2 - rp2) &&
-        (i3 >= lp3 && i3 < ne3 - rp3)) {
-        const int64_t i00 = i0 - lp0;
-        const int64_t i01 = i1 - lp1;
-        const int64_t i02 = i2 - lp2;
-        const int64_t i03 = i3 - lp3;
-        const int64_t ne02 = ne2 - lp2 - rp2;
-        const int64_t ne01 = ne1 - lp1 - rp1;
-        const int64_t ne00 = ne0 - lp0 - rp0;
+    const int64_t ne02 = ne2 - lp2 - rp2;
+    const int64_t ne01 = ne1 - lp1 - rp1;
+    const int64_t ne00 = ne0 - lp0 - rp0;
+    if (circular) {
+        const int64_t ne03 = ne3 - lp3 - rp3;
+        const int64_t i00 = wrap_coord(i0 - lp0, ne00);
+        const int64_t i01 = wrap_coord(i1 - lp1, ne01);
+        const int64_t i02 = wrap_coord(i2 - lp2, ne02);
+        const int64_t i03 = wrap_coord(i3 - lp3, ne03);
 
         const int64_t src_idx = i03*(ne00*ne01*ne02) + i02*(ne00*ne01) + i01*ne00 + i00;
-
+        
         dst[dst_idx] = src[src_idx];
-    } else {
-        dst[dst_idx] = 0.0f;
     }
+    else {
+        if ((i0 >= lp0 && i0 < ne0 - rp0) &&
+            (i1 >= lp1 && i1 < ne1 - rp1) &&
+            (i2 >= lp2 && i2 < ne2 - rp2) &&
+            (i3 >= lp3 && i3 < ne3 - rp3)) {
+            const int64_t i00 = i0 - lp0;
+            const int64_t i01 = i1 - lp1;
+            const int64_t i02 = i2 - lp2;
+            const int64_t i03 = i3 - lp3;
+
+            const int64_t src_idx = i03*(ne00*ne01*ne02) + i02*(ne00*ne01) + i01*ne00 + i00;
+
+            dst[dst_idx] = src[src_idx];
+        } else {
+            dst[dst_idx] = 0.0f;
+        }
+    }
+
 }
 
 static void pad_f32_cuda(const float * src, float * dst,
@@ -50,7 +68,7 @@ static void pad_f32_cuda(const float * src, float * dst,
         src, dst,
         lp0, rp0, lp1, rp1,
         lp2, rp2, lp3, rp3,
-        ne0, ne1, ne2, ne3
+        ne0, ne1, ne2, ne3,
         circular);
 }
 
