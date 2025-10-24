@@ -9775,7 +9775,7 @@ static void ggml_vk_conv_transpose_2d(ggml_backend_vk_context * ctx, vk_context 
     p.nb1 = static_cast<uint32_t>(nb1 / nb0);
     p.nb2 = static_cast<uint32_t>(nb2 / nb0);
     p.nb3 = static_cast<uint32_t>(nb3 / nb0);
-    p.circular = static_cast<uint32_t>(dst->op_params[6]);
+    p.circular = 0;
 
     GGML_ASSERT(ne02 == ne2);
     GGML_ASSERT(ne03 == ne12);
