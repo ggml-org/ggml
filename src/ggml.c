@@ -4932,13 +4932,6 @@ struct ggml_tensor * ggml_interpolate(
     return ggml_interpolate_impl(ctx, a, ne0, ne1, ne2, ne3, mode);
 }
 
-GGML_API void ggml_set_pad_mode(struct ggml_tensor * tensor, enum ggml_pad_mode mode) {
-    GGML_ASSERT(tensor != NULL);
-    GGML_ASSERT(tensor->op == GGML_OP_PAD);
-    GGML_ASSERT(mode == GGML_PAD_MODE_ZERO || mode == GGML_PAD_MODE_CIRCULAR);
-    ggml_set_op_params_i32(tensor, 8, (int32_t) mode);
-}
-
 // ggml_pad
 
 struct ggml_tensor * ggml_pad(

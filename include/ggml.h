@@ -2179,13 +2179,6 @@ GGML_API struct ggml_tensor * ggml_conv_transpose_2d_p0(
             int64_t               ne3,
             uint32_t              mode); // ggml_scale_mode [ | ggml_scale_flag...]
 
-    enum ggml_pad_mode {
-        GGML_PAD_MODE_ZERO     = 0,
-        GGML_PAD_MODE_CIRCULAR = 1,
-    };
-
-    GGML_API void ggml_set_pad_mode(struct ggml_tensor * tensor, enum ggml_pad_mode mode);
-
     // pad each dimension with zeros: [x, ..., x] -> [x, ..., x, 0, ..., 0]
     GGML_API struct ggml_tensor * ggml_pad(
             struct ggml_context * ctx,
