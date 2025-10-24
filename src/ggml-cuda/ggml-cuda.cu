@@ -273,6 +273,15 @@ static ggml_cuda_device_info ggml_cuda_init() {
         } else if (device_name.substr(0, 21) == "NVIDIA GeForce GTX 16") {
             turing_devices_without_mma.push_back({ id, device_name });
         }
+
+        // Temporary performance fix:
+        // Setting device scheduling strategy for iGPUs with cc121 to "spinning" to avoid delays in cuda synchronize calls.
+        // TODO: Check for future drivers the default scheduling strategy and
+        // remove this call again when cudaDeviceScheduleSpin is default.
+        if (prop.major == 12 && prop.minor == 1) {
+            CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceScheduleSpin));
+        }
+
 #endif  // defined(GGML_USE_HIP)
     }
 
@@ -2812,15 +2821,8 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph * cgraph, int node_idx, 
     std::initializer_list<enum ggml_op> topk_moe_ops           = ggml_cuda_topk_moe_ops(false);
     std::initializer_list<enum ggml_op> topk_moe_ops_with_norm = ggml_cuda_topk_moe_ops(true);
 
-    if (ops.size() == topk_moe_ops_with_norm.size() && std::equal(ops.begin(), ops.end(), topk_moe_ops_with_norm.begin())) {
-
-        if (node_idx + topk_moe_ops_with_norm.size() > (size_t)cgraph->n_nodes) {
-            return false;
-        }
-
-        for (size_t i = 0; i < topk_moe_ops_with_norm.size(); i++) {
-            if (cgraph->nodes[node_idx + i]->op != topk_moe_ops_with_norm.begin()[i]) return false;
-        }
+    if (ops.size() == topk_moe_ops_with_norm.size() &&
+        ggml_can_fuse_subgraph(cgraph, node_idx, topk_moe_ops_with_norm, { node_idx + 3, node_idx + 8 })) {
         ggml_tensor * softmax = cgraph->nodes[node_idx];
         ggml_tensor * weights = cgraph->nodes[node_idx+8];
 
@@ -2829,16 +2831,8 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph * cgraph, int node_idx, 
         }
     }
 
-    if (ops.size() == topk_moe_ops.size() && std::equal(ops.begin(), ops.end(), topk_moe_ops.begin())) {
-
-        if (node_idx + topk_moe_ops.size() > (size_t)cgraph->n_nodes) {
-            return false;
-        }
-
-        for (size_t i = 0; i < topk_moe_ops.size(); i++) {
-            if (cgraph->nodes[node_idx + i]->op != topk_moe_ops.begin()[i]) return false;
-        }
-
+    if (ops.size() == topk_moe_ops.size() &&
+        ggml_can_fuse_subgraph(cgraph, node_idx, topk_moe_ops, { node_idx + 3, node_idx + 4 })) {
         ggml_tensor * softmax = cgraph->nodes[node_idx];
         ggml_tensor * weights = cgraph->nodes[node_idx+4];
         if (ggml_cuda_should_use_topk_moe(softmax, weights)) {
@@ -3616,9 +3610,10 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
         case GGML_OP_CONV_2D_DW:
         case GGML_OP_CONV_TRANSPOSE_2D:
         case GGML_OP_POOL_2D:
-        case GGML_OP_SUM:
         case GGML_OP_ACC:
             return true;
+        case GGML_OP_SUM:
+            return ggml_is_contiguous_rows(op->src[0]);
         case GGML_OP_ARGSORT:
             // TODO: Support arbitrary column width
             return op->src[0]->ne[0] <= 1024;
