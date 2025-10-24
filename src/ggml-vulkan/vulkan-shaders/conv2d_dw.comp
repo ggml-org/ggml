@@ -29,7 +29,7 @@ layout (binding = 2) writeonly buffer D {D_TYPE dst_data[];};
 layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
 
 uint wrap_coord(int coord, uint size) {
-    return ((uint)(coord + (int)size)) % size; // add size to avoid issues with negative
+    return (uint(coord + int(size))) % size; // add size to avoid issues with negative
 }
 
 FLOAT_TYPE conv_2d_dw_whcn(uint idx) {
@@ -44,7 +44,7 @@ FLOAT_TYPE conv_2d_dw_whcn(uint idx) {
     uint knl_i = c * p.knl_h * p.knl_w;
 
     FLOAT_TYPE sum = 0.0;
-    if (p.circular) {
+    if (p.circular != 0) {
         for (uint knl_y = 0; knl_y < p.knl_h; ++knl_y) {
             int raw_y   = int(dst_y) * p.stride_y + int(knl_y) * p.dilation_y - p.pad_y;
             uint src_y  = wrap_coord(raw_y, p.src_h);
@@ -90,7 +90,7 @@ FLOAT_TYPE conv_2d_dw_cwhn(uint idx) {
     uint knl_row = p.knl_w * p.channels;
 
     FLOAT_TYPE sum = 0.0;
-    if (p.circular) {
+    if (p.circular != 0) {
         for (uint knl_y = 0; knl_y < p.knl_h; ++knl_y) {
             int raw_y   = int(dst_y) * p.stride_y + int(knl_y) * p.dilation_y - p.pad_y;
             uint src_y  = wrap_coord(raw_y, p.src_h);

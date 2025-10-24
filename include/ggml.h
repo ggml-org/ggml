@@ -1987,6 +1987,17 @@ extern "C" {
             int                   dilation0,
             int                   dilation1);
 
+    GGML_API struct ggml_tensor * ggml_conv_2d_circular(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * b,
+            int                   s0,
+            int                   s1,
+            int                   p0,
+            int                   p1,
+            int                   d0,
+            int                   d1);
+
     GGML_API struct ggml_tensor * ggml_conv_2d_dw_direct_circular(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,

@@ -4397,6 +4397,24 @@ struct ggml_tensor * ggml_conv_2d(
     return result;
 }
 
+struct ggml_tensor * ggml_conv_2d_circular(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        int                   s0,
+        int                   s1,
+        int                   p0,
+        int                   p1,
+        int                   d0,
+        int                   d1) {
+    if (p0 == 0 && p1 == 0) {
+        return ggml_conv_2d(ctx, a, b, s0, s1, p0, p1, d0, d1);
+    }
+
+    struct ggml_tensor * b_padded = ggml_pad_circular(ctx, b, p0, p0, p1, p1, 0, 0, 0, 0);
+    return ggml_conv_2d(ctx, a, b_padded, s0, s1, 0, 0, d0, d1);
+}
+
 // a: [OC*IC, KD, KH, KW]
 // b: [N*IC, ID, IH, IW]
 // result: [N*OD, OH, OW, IC * KD * KH * KW]

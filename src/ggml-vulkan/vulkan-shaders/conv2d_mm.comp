@@ -11,7 +11,7 @@
 #    extension GL_KHR_shader_subgroup_shuffle : enable
 #endif
 
-#include "types.comp"
+#include "types.glsl"
 
 // shape notation: [dim(N), ..., dim(0)] -- stride(dim(j)) >= stride(dim(i)) if i > j
 layout(binding = 0) readonly buffer A {
@@ -155,7 +155,7 @@ uint fastdiv(uint n, uint mp, uint L) {
 }
 
 uint wrap_coord(int coord, uint size) {
-    return ((uint)(coord + (int)size)) % size; // add size to avoid issues with negative
+    return (uint(coord + int(size))) % size; // add size to avoid issues with negative
 }
 
 #ifdef COOPMAT2
