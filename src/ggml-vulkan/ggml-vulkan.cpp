@@ -881,7 +881,7 @@ static vk_op_pad_push_constants vk_op_pad_push_constants_init(const ggml_tensor 
     p.rp2 = dst->op_params[5];
     p.lp3 = dst->op_params[6];
     p.rp3 = dst->op_params[7];
-    p.padding_mode = dst->op_params[8];
+    p.circular = dst->op_params[8];
 
     return p; // fastdiv values and offsets are initialized later in ggml_vk_op
 }
