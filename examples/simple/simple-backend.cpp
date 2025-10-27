@@ -1,6 +1,4 @@
 #include "ggml.h"
-#include "ggml-cpu.h"
-#include "ggml-alloc.h"
 #include "ggml-backend.h"
 
 #include <cassert>
@@ -57,9 +55,8 @@ void init_model(simple_model & model) {
 
     ggml_backend_load_all();
 
-    ggml_backend_dev_t dev = ggml_backend_dev_get(0);
-    model.backend = ggml_backend_dev_init(dev, nullptr);
-    model.cpu_backend = ggml_backend_cpu_init();
+    model.backend = ggml_backend_init_best();
+    model.cpu_backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
 
     ggml_backend_t backends[2] = { model.backend, model.cpu_backend };
     model.sched = ggml_backend_sched_new(backends, nullptr, 2, GGML_DEFAULT_GRAPH_SIZE, false, true);
@@ -95,22 +92,14 @@ struct ggml_cgraph * build_graph(simple_model& model) {
 
 // compute with backend
 struct ggml_tensor * compute(simple_model & model, struct ggml_cgraph * gf) {
-    // reset the allocator to free all the memory allocated during the previous inference
-
-    ggml_backend_sched_reserve(model.sched, gf);
+    ggml_backend_sched_reset(model.sched);
     ggml_backend_sched_alloc_graph(model.sched, gf);
 
     // load data from cpu memory to backend buffer
     ggml_backend_tensor_set(model.a, matrix_A, 0, ggml_nbytes(model.a));
     ggml_backend_tensor_set(model.b, matrix_B, 0, ggml_nbytes(model.b));
 
-    int n_threads = 1; // number of threads to perform some operations with multi-threading
-
-    if (ggml_backend_is_cpu(model.backend)) {
-        ggml_backend_cpu_set_n_threads(model.backend, n_threads);
-    }
-
-    ggml_backend_sched_reset(model.sched);
+    // compute the graph
     ggml_backend_sched_graph_compute(model.sched, gf);
 
     // in this case, the output tensor is the last one in the graph
