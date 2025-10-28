@@ -24,7 +24,9 @@ struct simple_model {
     ggml_backend_t backend {};
     ggml_backend_t cpu_backend {};
     ggml_backend_sched_t sched {};
-    struct ggml_context * ctx {};
+
+    // storage for the graph and tensors
+    std::vector<uint8_t> buf;
 };
 
 // initialize data of matrices to perform matrix multiplication
@@ -60,32 +62,35 @@ void init_model(simple_model & model) {
 
     ggml_backend_t backends[2] = { model.backend, model.cpu_backend };
     model.sched = ggml_backend_sched_new(backends, nullptr, 2, GGML_DEFAULT_GRAPH_SIZE, false, true);
-
-    size_t buf_size = ggml_tensor_overhead()*GGML_DEFAULT_GRAPH_SIZE + ggml_graph_overhead();
-
-    struct ggml_init_params params0 = {
-        /*.mem_size   =*/ buf_size,
-        /*.mem_buffer =*/ nullptr,
-        /*.no_alloc   =*/ true, // the tensors will be allocated later
-    };
-
-    // create a context to build the graph
-    model.ctx = ggml_init(params0);
 }
 
 // build the compute graph to perform a matrix multiplication
 struct ggml_cgraph * build_graph(simple_model& model) {
-    struct ggml_cgraph  * gf = ggml_new_graph(model.ctx);
+    size_t buf_size = ggml_tensor_overhead()*GGML_DEFAULT_GRAPH_SIZE + ggml_graph_overhead();
+    model.buf.resize(buf_size);
+
+    struct ggml_init_params params0 = {
+        /*.mem_size   =*/ buf_size,
+        /*.mem_buffer =*/ model.buf.data(),
+        /*.no_alloc   =*/ true, // the tensors will be allocated later
+    };
+
+    // create a context to build the graph
+    struct ggml_context * ctx = ggml_init(params0);
+
+    struct ggml_cgraph  * gf = ggml_new_graph(ctx);
 
     // create tensors
-    model.a = ggml_new_tensor_2d(model.ctx, GGML_TYPE_F32, cols_A, rows_A);
-    model.b = ggml_new_tensor_2d(model.ctx, GGML_TYPE_F32, cols_B, rows_B);
+    model.a = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, cols_A, rows_A);
+    model.b = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, cols_B, rows_B);
 
     // result = a*b^T
-    struct ggml_tensor * result = ggml_mul_mat(model.ctx, model.a, model.b);
+    struct ggml_tensor * result = ggml_mul_mat(ctx, model.a, model.b);
 
     // build operations nodes
     ggml_build_forward_expand(gf, result);
+
+    ggml_free(ctx);
 
     return gf;
 }
@@ -144,6 +149,5 @@ int main(void) {
     ggml_backend_sched_free(model.sched);
     ggml_backend_free(model.backend);
     ggml_backend_free(model.cpu_backend);
-    ggml_free(model.ctx);
     return 0;
 }
