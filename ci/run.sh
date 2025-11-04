@@ -294,12 +294,12 @@ function gg_run_sam {
     python3 ../examples/sam/convert-pth-to-ggml.py ${path_models}/sam_vit_b_01ec64.pth ${path_models}/ 1
 
     # Test default parameters
-    (time ./bin/sam -m ${model_f16} -i ${img_0} ) 2>&1 | tee -a $OUT/${ci}-main.log
+    (time ./bin/sam -m ${model_f16} -i ${img_0} -st 0.925 ) 2>&1 | tee -a $OUT/${ci}-main.log
     grep -q "point prompt" $OUT/${ci}-main.log
     grep -q "bbox (371, 436), (144, 168)" $OUT/${ci}-main.log
 
     # Test box prompt and single mask output
-    (time ./bin/sam -m ${model_f16} -i ${img_0} -b 368,144,441,173 -sm) 2>&1 | tee -a $OUT/${ci}-main.log
+    (time ./bin/sam -m ${model_f16} -i ${img_0} -st 0.925 -b 368,144,441,173 -sm) 2>&1 | tee -a $OUT/${ci}-main.log
     grep -q "box prompt" $OUT/${ci}-main.log
     grep -q "bbox (370, 439), (144, 169)" $OUT/${ci}-main.log
 
