@@ -1,0 +1,1 @@
+/home/runner/work/ggml/.codeql-scratch/dbs/cpp/working/autobuild/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/magika.dir/link.d CMakeFiles/magika.dir/main.cpp.o -o ../../bin/magika  -Wl,-rpath,/home/runner/work/ggml/ggml/_codeql_build_dir/src ../libcommon.a ../libcommon-ggml.a ../../src/libggml.so ../../src/libggml-cpu.so ../../src/libggml-base.so

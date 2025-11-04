@@ -1,0 +1,1 @@
+/home/runner/work/ggml/.codeql-scratch/dbs/cpp/working/autobuild/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/test-conv1d-dw-c2.dir/link.d "CMakeFiles/test-conv1d-dw-c2.dir/test-conv1d-dw-c2.cpp.o" -o ../bin/test-conv1d-dw-c2  -Wl,-rpath,/home/runner/work/ggml/ggml/_codeql_build_dir/src ../src/libggml.so ../src/libggml-cpu.so ../src/libggml-base.so
