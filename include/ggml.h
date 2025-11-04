@@ -2032,11 +2032,33 @@ extern "C" {
             int                   dilation0,
             int                   dilation1);
 
-    GGML_API struct ggml_tensor * ggml_conv_transpose_2d_p0(
+    GGML_API struct ggml_tensor * ggml_conv_2d_circular(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
             struct ggml_tensor  * b,
-            int                   stride);
+            int                   s0,
+            int                   s1,
+            int                   p0,
+            int                   p1,
+            int                   d0,
+            int                   d1);
+
+    GGML_API struct ggml_tensor * ggml_conv_2d_dw_direct_circular(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * b,
+            int                   stride0,
+            int                   stride1,
+            int                   pad0,
+            int                   pad1,
+            int                   dilation0,
+            int                   dilation1);
+
+GGML_API struct ggml_tensor * ggml_conv_transpose_2d_p0(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        int                   stride);
 
     GGML_API struct ggml_tensor * ggml_conv_2d_direct(
             struct ggml_context * ctx,
@@ -2048,6 +2070,17 @@ extern "C" {
             int                   p1,  // padding dimension 1
             int                   d0,  // dilation dimension 0
             int                   d1); // dilation dimension 1
+
+    GGML_API struct ggml_tensor * ggml_conv_2d_direct_circular(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * b,
+            int                   s0,
+            int                   s1,
+            int                   p0,
+            int                   p1,
+            int                   d0,
+            int                   d1);
 
     GGML_API struct ggml_tensor * ggml_conv_3d_direct(
             struct ggml_context * ctx,
@@ -2157,6 +2190,19 @@ extern "C" {
             int                  p3);
 
     GGML_API struct ggml_tensor * ggml_pad_ext(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            int                  lp0,
+            int                  rp0,
+            int                  lp1,
+            int                  rp1,
+            int                  lp2,
+            int                  rp2,
+            int                  lp3,
+            int                  rp3
+            );
+
+    GGML_API struct ggml_tensor * ggml_pad_circular(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
             int                  lp0,
