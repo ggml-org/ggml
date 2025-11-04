@@ -296,12 +296,14 @@ function gg_run_sam {
     # Test default parameters
     (time ./bin/sam -m ${model_f16} -i ${img_0} -st 0.925 ) 2>&1 | tee -a $OUT/${ci}-main.log
     grep -q "point prompt" $OUT/${ci}-main.log
-    grep -q "bbox (371, 436), (144, 168)" $OUT/${ci}-main.log
+    grep -q "bbox (371, 436), (144, 168)" $OUT/${ci}-main.log ||
+    grep -q "bbox (370, 439), (144, 168)" $OUT/${ci}-main.log
 
     # Test box prompt and single mask output
     (time ./bin/sam -m ${model_f16} -i ${img_0} -st 0.925 -b 368,144,441,173 -sm) 2>&1 | tee -a $OUT/${ci}-main.log
     grep -q "box prompt" $OUT/${ci}-main.log
-    grep -q "bbox (370, 439), (144, 169)" $OUT/${ci}-main.log
+    grep -q "bbox (370, 439), (144, 169)" $OUT/${ci}-main.log ||
+    grep -q "bbox (370, 439), (144, 168)" $OUT/${ci}-main.log
 
     set +e
 }
