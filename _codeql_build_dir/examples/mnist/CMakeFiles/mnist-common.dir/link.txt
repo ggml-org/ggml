@@ -1,2 +1,0 @@
-/usr/bin/ar qc libmnist-common.a "CMakeFiles/mnist-common.dir/mnist-common.cpp.o"
-/usr/bin/ranlib libmnist-common.a

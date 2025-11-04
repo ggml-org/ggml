@@ -1,1 +1,0 @@
-/home/runner/work/ggml/.codeql-scratch/dbs/cpp/working/autobuild/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/sam.dir/link.d CMakeFiles/sam.dir/sam.cpp.o -o ../../bin/sam  -Wl,-rpath,/home/runner/work/ggml/ggml/_codeql_build_dir/src ../../src/libggml.so ../libcommon.a ../../src/libggml-cpu.so ../../src/libggml-base.so

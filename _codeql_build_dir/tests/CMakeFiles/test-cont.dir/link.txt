@@ -1,1 +1,0 @@
-/home/runner/work/ggml/.codeql-scratch/dbs/cpp/working/autobuild/bin/cc  -mavx -mavx2 -mfma -mf16c -msse3 -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/test-cont.dir/link.d "CMakeFiles/test-cont.dir/test-cont.c.o" -o ../bin/test-cont  -Wl,-rpath,/home/runner/work/ggml/ggml/_codeql_build_dir/src ../src/libggml.so ../src/libggml-cpu.so ../src/libggml-base.so

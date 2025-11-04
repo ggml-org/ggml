@@ -1,1 +1,0 @@
-/home/runner/work/ggml/.codeql-scratch/dbs/cpp/working/autobuild/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/test-backend-ops.dir/link.d "CMakeFiles/test-backend-ops.dir/test-backend-ops.cpp.o" -o ../bin/test-backend-ops  -Wl,-rpath,/home/runner/work/ggml/ggml/_codeql_build_dir/src ../src/libggml.so ../src/libggml-cpu.so ../src/libggml-base.so
