@@ -37,3 +37,4 @@ __pycache__/
 # Model files
 ggml-model-f16.bin
 *.bat
+_codeql_build_dir/
