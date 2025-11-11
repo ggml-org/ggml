@@ -169,6 +169,10 @@ struct ggml_cgraph * build_graph(const test_model& model) {
     ggml_set_name(conv2d_res, "conv2d_res");
     ggml_build_forward_expand(gf, conv2d_res);
 
+    struct ggml_tensor* conv2d_direct_res = ggml_conv_2d_direct(ctx0, model.a, model.b, s0, s1, p0, p1, d0, d1);
+    ggml_set_name(conv2d_direct_res, "conv2d_direct_res");
+    ggml_build_forward_expand(gf, conv2d_direct_res);
+
     ggml_free(ctx0);
     return gf;
 }
@@ -191,45 +195,57 @@ struct ggml_cgraph * compute_graph(const test_model & model, ggml_gallocr_t allo
     return gf;
 }
 
-int main(void)
-{
-    ggml_time_init();
+static bool run_conv2d_case(bool request_gpu) {
+    const char * label = request_gpu ? "GPU" : "CPU";
+    printf("\n=== Running CONV2D test on %s backend ===\n", label);
 
     test_model model;
-    load_model(model, true);
+    load_model(model, request_gpu);
 
-    ggml_gallocr_t allocr = NULL;
+#ifdef GGML_USE_METAL
+    if (request_gpu && !ggml_backend_is_metal(model.backend)) {
+        fprintf(stderr, "Skipping GPU test: Metal backend unavailable\n");
+        ggml_free(model.ctx);
+        ggml_backend_buffer_free(model.buffer);
+        ggml_backend_free(model.backend);
+        return true;
+    }
+#endif
+
+    ggml_gallocr_t allocr = ggml_gallocr_new(ggml_backend_get_default_buffer_type(model.backend));
 
     {
-        allocr = ggml_gallocr_new(ggml_backend_get_default_buffer_type(model.backend));
-
-        //create the worst case graph for memory usage estimation
         struct ggml_cgraph * gf = build_graph(model);
-
-        // compute the required memory
         ggml_gallocr_reserve(allocr, gf);
         size_t mem_size = ggml_gallocr_get_buffer_size(allocr, 0);
-        fprintf(stderr, "%s: compute buffer size: %.2f MB\n", __func__, mem_size/1024.0f/1024.0f);
+        fprintf(stderr, "run_conv2d_case(%s): compute buffer size: %.2f MB\n", label, mem_size/1024.0f/1024.0f);
     }
 
     struct ggml_cgraph * gf_res = compute_graph(model, allocr);
 
-    struct ggml_tensor * im2col_res = NULL;
-    struct ggml_tensor * conv2d_res = NULL;
+    struct ggml_tensor * im2col_res        = NULL;
+    struct ggml_tensor * conv2d_res        = NULL;
+    struct ggml_tensor * conv2d_direct_res = NULL;
 
-    for(int i = 0; i < ggml_graph_n_nodes(gf_res); ++i) {
-        if(strcmp(ggml_get_name(ggml_graph_node(gf_res, i)), "im2col_res") == 0) {
+    for (int i = 0; i < ggml_graph_n_nodes(gf_res); ++i) {
+        if (strcmp(ggml_get_name(ggml_graph_node(gf_res, i)), "im2col_res") == 0) {
             im2col_res = ggml_graph_node(gf_res, i);
-        } else if(strcmp(ggml_get_name(ggml_graph_node(gf_res, i)), "conv2d_res") == 0) {
+        } else if (strcmp(ggml_get_name(ggml_graph_node(gf_res, i)), "conv2d_res") == 0) {
             conv2d_res = ggml_graph_node(gf_res, i);
+        } else if (strcmp(ggml_get_name(ggml_graph_node(gf_res, i)), "conv2d_direct_res") == 0) {
+            conv2d_direct_res = ggml_graph_node(gf_res, i);
         }
     }
 
+    GGML_ASSERT(conv2d_direct_res != NULL);
+
     std::vector<uint16_t> im2col_data(ggml_nelements(im2col_res));
     std::vector<float> conv2d_data(ggml_nelements(conv2d_res));
+    std::vector<float> conv2d_direct_data(ggml_nelements(conv2d_direct_res));
 
     ggml_backend_tensor_get(im2col_res, im2col_data.data(), 0, ggml_nbytes(im2col_res));
     ggml_backend_tensor_get(conv2d_res, conv2d_data.data(), 0, ggml_nbytes(conv2d_res));
+    ggml_backend_tensor_get(conv2d_direct_res, conv2d_direct_data.data(), 0, ggml_nbytes(conv2d_direct_res));
 
     const int n_conv2d_test = 480;
     const int n_im2col_test = 4320;
@@ -359,33 +375,58 @@ int main(void)
             15872, 15872, 15872, 15872, 15872, 0, 0, 0
     };
 
-    printf("\nPerforming test:\n");
+    printf("\nPerforming test (%s backend):\n", label);
 
-    bool passed = true;
-    for(int i = 0; i < n_conv2d_test; i++) {
-        if(
-            im2col_data[i] != expected_im2col[i]) {
-            passed = false;
+    bool im2col_ok = true;
+    for (int i = 0; i < n_conv2d_test; i++) {
+        if (im2col_data[i] != expected_im2col[i]) {
+            im2col_ok = false;
             break;
         }
     }
+    printf("ggml_im2col (%d): %s\n", (int) ggml_nelements(im2col_res),
+           im2col_ok && (ggml_nelements(im2col_res) == n_im2col_test) ? "\033[32mPASSED\033[0m"
+                                                                      : "\033[31mFAILED\033[0m");
 
-    printf("ggml_im2col (%d): %s\n", (int) ggml_nelements(im2col_res), passed && (ggml_nelements(im2col_res) == n_im2col_test) ? "\033[32mPASSED\033[0m" : "\033[31mFAILED\033[0m");
-
-    passed = true;
-    for(int i = 0; i < n_conv2d_test; i++) {
-        if(conv2d_data[i] != expected_conv2d[i]) {
-            passed = false;
+    bool conv_ok = true;
+    for (int i = 0; i < n_conv2d_test; i++) {
+        if (conv2d_data[i] != expected_conv2d[i]) {
+            conv_ok = false;
             break;
         }
     }
+    printf("ggml_conv2d (%d): %s\n", (int) ggml_nelements(conv2d_res),
+           conv_ok && (ggml_nelements(conv2d_res) == n_conv2d_test) ? "\033[32mPASSED\033[0m"
+                                                                    : "\033[31mFAILED\033[0m");
 
-    printf("ggml_conv2d (%d): %s\n", (int) ggml_nelements(conv2d_res), passed && (ggml_nelements(conv2d_res) == n_conv2d_test) ? "\033[32mPASSED\033[0m" : "\033[31mFAILED\033[0m");
+    bool conv_direct_ok = true;
+    for (int i = 0; i < n_conv2d_test; i++) {
+        if (conv2d_direct_data[i] != expected_conv2d[i]) {
+            conv_direct_ok = false;
+            break;
+        }
+    }
+    printf("ggml_conv2d_direct (%d): %s\n", (int) ggml_nelements(conv2d_direct_res),
+           conv_direct_ok && (ggml_nelements(conv2d_direct_res) == n_conv2d_test) ? "\033[32mPASSED\033[0m"
+                                                                                  : "\033[31mFAILED\033[0m");
 
     ggml_free(model.ctx);
-
     ggml_backend_buffer_free(model.buffer);
     ggml_backend_free(model.backend);
     ggml_gallocr_free(allocr);
-    return 0;
+
+    return im2col_ok && conv_ok && conv_direct_ok;
+}
+
+int main(void) {
+    ggml_time_init();
+
+    bool ok_cpu = run_conv2d_case(false);
+#ifdef GGML_USE_METAL
+    bool ok_gpu = run_conv2d_case(true);
+#else
+    bool ok_gpu = true;
+#endif
+
+    return (ok_cpu && ok_gpu) ? 0 : 1;
 }
