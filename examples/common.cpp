@@ -3,10 +3,8 @@
 #include "common.h"
 
 #include <cmath>
-#include <codecvt>
 #include <cstring>
 #include <fstream>
-#include <locale>
 #include <regex>
 #include <sstream>
 
