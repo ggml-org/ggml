@@ -140,12 +140,12 @@ int main() {
     passed &= test_interpolate("upscale_x2_bilinear_align_corners",
         {2, 2, 1, 1}, input_upscale,
         {4, 4, 1, 1}, expected_upscale_x2_bilinear_align_corners,
-        GGML_SCALE_MODE_BILINEAR | GGML_SCALE_FLAG_ALIGN_CORNERS);
+        static_cast<uint32_t>(GGML_SCALE_MODE_BILINEAR) | GGML_SCALE_FLAG_ALIGN_CORNERS);
 
     passed &= test_interpolate("upscale_x1_5_bilinear_align_corners",
         {2, 2, 1, 1}, input_upscale,
         {2, 3, 1, 1}, expected_upscale_x1_5_bilinear_align_corners,
-        GGML_SCALE_MODE_BILINEAR | GGML_SCALE_FLAG_ALIGN_CORNERS);
+        static_cast<uint32_t>(GGML_SCALE_MODE_BILINEAR) | GGML_SCALE_FLAG_ALIGN_CORNERS);
 
     passed &= test_interpolate("downscale_nearest",
         {4, 3, 2, 1}, input_downscale,
@@ -160,7 +160,7 @@ int main() {
     passed &= test_interpolate("downscale_bilinear_align_corners",
         {4, 3, 2, 1}, input_downscale,
         {3, 2, 2, 1}, expected_downscale_bilinear_align_corners,
-        GGML_SCALE_MODE_BILINEAR | GGML_SCALE_FLAG_ALIGN_CORNERS);
+        static_cast<uint32_t>(GGML_SCALE_MODE_BILINEAR) | GGML_SCALE_FLAG_ALIGN_CORNERS);
 
     return passed ? 0 : 1;
 }
