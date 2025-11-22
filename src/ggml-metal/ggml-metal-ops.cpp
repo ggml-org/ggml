@@ -440,6 +440,18 @@ static int ggml_metal_op_encode_impl(ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = ggml_metal_op_argmax(ctx, idx);
             } break;
+        case GGML_OP_CROSS_ENTROPY_LOSS:
+            {
+                n_fuse = ggml_metal_op_cross_entropy_loss(ctx, idx);
+            } break;
+        case GGML_OP_CROSS_ENTROPY_LOSS_BACK:
+            {
+                n_fuse = ggml_metal_op_cross_entropy_loss_back(ctx, idx);
+            } break;
+        case GGML_OP_COUNT_EQUAL:
+            {
+                n_fuse = ggml_metal_op_count_equal(ctx, idx);
+            } break;
         case GGML_OP_OPT_STEP_ADAMW:
             {
                 n_fuse = ggml_metal_op_opt_step_adamw(ctx, idx);
@@ -3715,6 +3727,82 @@ int ggml_metal_op_argmax(ggml_metal_op_t ctx, int idx) {
     return 1;
 }
 
+int ggml_metal_op_cross_entropy_loss(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    const ggml_tensor * src0 = op->src[0];
+    const ggml_tensor * src1 = op->src[1];
+
+    GGML_TENSOR_LOCALS( int32_t, ne0, src0, ne);
+    GGML_TENSOR_LOCALS(uint64_t, nb0, src0, nb);
+    GGML_TENSOR_LOCALS( int32_t, ne1, src1, ne);
+    GGML_TENSOR_LOCALS(uint64_t, nb1, src1, nb);
+
+    const int32_t nrows = (int32_t) ggml_nrows(src0);
+
+    ggml_metal_kargs_cross_entropy_loss args = {
+        /*.n_classes =*/ ne00,
+        /*.n_rows    =*/ nrows,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_cross_entropy_loss(lib, op);
+
+    const int nth = 32;
+
+    const size_t smem = pipeline .smem;
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src0), 1);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src1), 2);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op), 3);
+    ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, nrows, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
+int ggml_metal_op_cross_entropy_loss_back(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    const ggml_tensor * grad = op->src[0];
+    const ggml_tensor * src0 = op->src[1];
+    const ggml_tensor * src1 = op->src[2];
+
+    GGML_TENSOR_LOCALS( int32_t, ne0, src0, ne);
+
+    const int32_t nrows = (int32_t) ggml_nrows(src0);
+
+    ggml_metal_kargs_cross_entropy_loss_back args = {
+        /*.n_classes =*/ ne00,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_cross_entropy_loss_back(lib, op);
+
+    const int nth = 32;
+
+    const size_t smem = pipeline .smem;
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(grad), 1);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src0), 2);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src1), 3);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op), 4);
+    ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, nrows, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
 int ggml_metal_op_argsort(ggml_metal_op_t ctx, int idx) {
     ggml_tensor * op = ctx->node(idx);
 
@@ -4017,6 +4105,34 @@ int ggml_metal_op_tri(ggml_metal_op_t ctx, int idx) {
     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         2);
 
     ggml_metal_encoder_dispatch_threadgroups(enc, ne01, ne02, ne03, nth, 1, 1);
+
+    return 1;
+}
+
+int ggml_metal_op_count_equal(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    const ggml_tensor * src0 = op->src[0];
+    const ggml_tensor * src1 = op->src[1];
+
+    ggml_metal_kargs_count_equal args = {
+        /*.ne0 =*/ (int32_t) ggml_nelements(src0),
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_count_equal(lib, op);
+
+    const int nth = 256;
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src0), 1);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src1), 2);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op), 3);
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, 1, 1, 1, nth, 1, 1);
 
     return 1;
 }
