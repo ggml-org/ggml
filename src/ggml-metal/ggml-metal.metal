@@ -9672,3 +9672,40 @@ kernel void kernel_opt_step_sgd_f32(
 
     x[gid] = x[gid] * (1.0f - pars[0] * pars[1]) - pars[0] * g[gid];
 }
+
+kernel void kernel_diag_mask_inf_f32(
+    constant ggml_metal_kargs_diag_mask_inf & args [[ buffer(0) ]],
+    device const float                      * src  [[ buffer(1) ]],
+    device float                            * dst  [[ buffer(2) ]],
+    uint                                     row   [[ thread_position_in_grid ]]) {
+
+    const int nc     = args.ne00;   // ncols_x
+    const int nr     = args.ne01;   // rows_per_channel
+    const int nrows  = args.nrows;  // nrows_x
+    const int n_past = args.n_past;
+
+    if (row >= nrows) {
+        return;
+    }
+
+    const int j = row % nr;
+
+    const uint64_t nb0 = args.nb0;
+    const uint64_t nb1 = args.nb1;
+    const uint64_t nb2 = args.nb2;
+
+    const int k = row / nr;
+    const size_t base = k*nb2 + j*nb1;
+
+    for (int col = 0; col < nc; ++col) {
+        const size_t off = base + col*nb0;
+
+        float v = *((device const float *)((device char *)src + off));
+
+        if (col >= n_past && col > n_past + j) {
+            v = -1e9f;
+        }
+
+        *((device float *)((device char *)dst + off)) = v;
+    }
+}
