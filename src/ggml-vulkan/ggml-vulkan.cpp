@@ -720,6 +720,8 @@ struct vk_device_struct {
     vk_pipeline pipeline_leaky_relu_f32;
     vk_pipeline pipeline_silu_back_f32;
     vk_pipeline pipeline_diag_mask_inf_f32;
+    vk_pipeline pipeline_diag_mask_zero_f32;
+
     vk_pipeline pipeline_soft_max_f32, pipeline_soft_max_f32_f16;
     vk_pipeline pipeline_soft_max_f32_wg512, pipeline_soft_max_f32_f16_wg512;
     vk_pipeline pipeline_soft_max_back_f32;
@@ -4001,6 +4003,7 @@ static void ggml_vk_load_shaders(vk_device& device) {
     ggml_vk_create_pipeline(device, device->pipeline_silu_back_f32, "silu_back_f32", silu_back_f32_len, silu_back_f32_data, "main", 3, sizeof(vk_op_push_constants), {512, 1, 1}, {}, 1);
 
     ggml_vk_create_pipeline(device, device->pipeline_diag_mask_inf_f32, "diag_mask_inf_f32", diag_mask_inf_f32_len, diag_mask_inf_f32_data, "main", 2, sizeof(vk_op_diag_mask_push_constants), {1, 512, 1}, {}, 1, true);
+    ggml_vk_create_pipeline(device, device->pipeline_diag_mask_zero_f32, "diag_mask_zero_f32", diag_mask_zero_f32_len, diag_mask_zero_f32_data, "main", 2, sizeof(vk_op_diag_mask_push_constants), {1, 512, 1}, {}, 1, true);
 
     ggml_vk_create_pipeline(device, device->pipeline_soft_max_f32, "soft_max_f32", soft_max_f32_len, soft_max_f32_data, "main", 4, sizeof(vk_op_soft_max_push_constants), {1, 1, 1}, { device->subgroup_size }, 1);
     ggml_vk_create_pipeline(device, device->pipeline_soft_max_f32_wg512, "soft_max_f32_wg512", soft_max_f32_len, soft_max_f32_data, "main", 4, sizeof(vk_op_soft_max_push_constants), {1, 1, 1}, { 512 }, 1);
@@ -8578,6 +8581,12 @@ static vk_pipeline ggml_vk_op_get_pipeline(ggml_backend_vk_context * ctx, const 
             return ctx->device->pipeline_diag_mask_inf_f32;
         }
         return nullptr;
+
+    case GGML_OP_DIAG_MASK_ZERO:
+      if (src0->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
+        return ctx->device->pipeline_diag_mask_zero_f32;
+      }
+      return nullptr;
     case GGML_OP_SOFT_MAX:
         GGML_ASSERT(!src1 || src1->type == GGML_TYPE_F32 || src1->type == GGML_TYPE_F16);
         GGML_ASSERT(!src2 || src2->type == GGML_TYPE_F32);
@@ -9029,6 +9038,7 @@ static void ggml_vk_op_f32(ggml_backend_vk_context * ctx, vk_context& subctx, co
             elements = { num_groups * (uint32_t)src0->ne[3], 1, 1 };
         } break;
     case GGML_OP_DIAG_MASK_INF:
+    case GGML_OP_DIAG_MASK_ZERO:
     case GGML_OP_ROPE:
     case GGML_OP_ROPE_BACK:
         elements = { (uint32_t)ggml_nrows(src0), (uint32_t)ne00, 1 };
@@ -9126,6 +9136,7 @@ static void ggml_vk_op_f32(ggml_backend_vk_context * ctx, vk_context& subctx, co
     case GGML_OP_LOG:
     case GGML_OP_TRI:
     case GGML_OP_DIAG:
+
     case GGML_OP_CLAMP:
     case GGML_OP_PAD:
     case GGML_OP_ROLL:
@@ -10128,6 +10139,10 @@ static void ggml_vk_glu(ggml_backend_vk_context * ctx, vk_context& subctx, const
 static void ggml_vk_diag_mask_inf(ggml_backend_vk_context * ctx, vk_context& subctx, const ggml_tensor * src0, ggml_tensor * dst) {
     int32_t * op_params = (int32_t *)dst->op_params;
     ggml_vk_op_f32<vk_op_diag_mask_push_constants>(ctx, subctx, src0, nullptr, nullptr, nullptr, dst, GGML_OP_DIAG_MASK_INF, { (uint32_t)src0->ne[0], (uint32_t)src0->ne[1], op_params[0] });
+}
+static void ggml_vk_diag_mask_zero(ggml_backend_vk_context * ctx, vk_context& subctx, const ggml_tensor * src0, ggml_tensor * dst) {
+  int32_t * op_params = (int32_t *)dst->op_params;
+  ggml_vk_op_f32<vk_op_diag_mask_push_constants>(ctx, subctx, src0, nullptr, nullptr, nullptr, dst, GGML_OP_DIAG_MASK_ZERO, { (uint32_t)src0->ne[0], (uint32_t)src0->ne[1], op_params[0] });
 }
 
 static void ggml_vk_soft_max(ggml_backend_vk_context * ctx, vk_context& subctx, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * src2, ggml_tensor * dst) {
@@ -12039,8 +12054,12 @@ static bool ggml_vk_build_graph(ggml_backend_vk_context * ctx, ggml_cgraph * cgr
         break;
     case GGML_OP_DIAG_MASK_INF:
         ggml_vk_diag_mask_inf(ctx, compute_ctx, src0, node);
-
         break;
+
+    case GGML_OP_DIAG_MASK_ZERO:
+        ggml_vk_diag_mask_zero(ctx, compute_ctx, src0, node);
+        break;
+
     case GGML_OP_SOFT_MAX:
         if (ctx->num_additional_fused_ops) {
             ggml_vk_topk_moe(ctx, compute_ctx, cgraph, node_idx);
@@ -14148,6 +14167,8 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
             return op->src[0]->type == GGML_TYPE_F32;
         case GGML_OP_DIAG_MASK_INF:
             return ggml_is_contiguous(op->src[0]) && op->src[0]->type == GGML_TYPE_F32;
+        case GGML_OP_DIAG_MASK_ZERO:
+            return ggml_is_contiguous(op->src[0]) && op->src[0]->type == GGML_TYPE_F32;
         case GGML_OP_SOFT_MAX:
             return ggml_is_contiguous(op->src[0]) && op->src[0]->type == GGML_TYPE_F32
                 && (!op->src[1] || (op->src[1]->type == GGML_TYPE_F32 || op->src[1]->type == GGML_TYPE_F16));
@@ -14727,7 +14748,9 @@ static void ggml_vk_check_results_0(ggml_backend_vk_context * ctx, ggml_cgraph *
         } else if (tensor->op == GGML_OP_SOFT_MAX_BACK) {
             tensor_clone = ggml_soft_max_ext_back(ggml_ctx, src_clone[0], src_clone[1], ((float *)tensor->op_params)[0], ((float *)tensor->op_params)[1]);
         } else if (tensor->op == GGML_OP_DIAG_MASK_INF) {
-            tensor_clone = ggml_diag_mask_inf(ggml_ctx, src_clone[0], tensor->op_params[0]);
+          tensor_clone = ggml_diag_mask_inf(ggml_ctx, src_clone[0], tensor->op_params[0]);
+        } else if (tensor->op == GGML_OP_DIAG_MASK_ZERO) {
+          tensor_clone = ggml_diag_mask_zero(ggml_ctx, src_clone[0], tensor->op_params[0]);
         } else if (tensor->op == GGML_OP_ROPE || tensor->op == GGML_OP_ROPE_BACK) {
             const int n_dims      = ((int32_t *) tensor->op_params)[1];
             const int mode        = ((int32_t *) tensor->op_params)[2];
