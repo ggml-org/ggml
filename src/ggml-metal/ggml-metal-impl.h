@@ -934,6 +934,15 @@ typedef struct {
 } ggml_metal_kargs_argmax;
 
 typedef struct {
+    int32_t  n_classes;
+    int32_t  n_rows;
+} ggml_metal_kargs_cross_entropy_loss;
+
+typedef struct {
+    int32_t  n_classes;
+} ggml_metal_kargs_cross_entropy_loss_back;
+
+typedef struct {
     int64_t  np;
 } ggml_metal_kargs_opt_step_adamw;
 
