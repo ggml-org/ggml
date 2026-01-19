@@ -263,8 +263,9 @@ option(GGML_ZENDNN                          "ggml: use ZenDNN"                  
 option(ZENDNN_ROOT                          "ggml: path to ZenDNN installation"               "")
 
 # extra artifacts
-option(GGML_BUILD_TESTS    "ggml: build tests"    ${GGML_STANDALONE})
-option(GGML_BUILD_EXAMPLES "ggml: build examples" ${GGML_STANDALONE})
+option(GGML_BUILD_TESTS      "ggml: build tests"      ${GGML_STANDALONE})
+option(GGML_BUILD_EXAMPLES   "ggml: build examples"   ${GGML_STANDALONE})
+option(GGML_BUILD_BENCHMARKS "ggml: build benchmarks" ${GGML_STANDALONE})
 
 #
 # dependencies
@@ -299,6 +300,10 @@ endif ()
 
 if (GGML_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif ()
+
+if (GGML_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
 endif ()
 
 #
