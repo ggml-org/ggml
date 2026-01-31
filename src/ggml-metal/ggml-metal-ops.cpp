@@ -460,6 +460,14 @@ static int ggml_metal_op_encode_impl(ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = ggml_metal_op_count_equal(ctx, idx);
             } break;
+        case GGML_OP_CROSS_ENTROPY_LOSS:
+            {
+                n_fuse = ggml_metal_op_cross_entropy_loss(ctx, idx);
+            } break;
+        case GGML_OP_CROSS_ENTROPY_LOSS_BACK:
+            {
+                n_fuse = ggml_metal_op_cross_entropy_loss_back(ctx, idx);
+            } break;
         default:
             {
                 GGML_LOG_ERROR("%s: error: node %3d, op = %8s not implemented\n", __func__, idx, ggml_op_name(node->op));
@@ -3775,6 +3783,88 @@ int ggml_metal_op_argmax(ggml_metal_op_t ctx, int idx) {
     ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
     ggml_metal_encoder_dispatch_threadgroups(enc, nrows, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
+int ggml_metal_op_cross_entropy_loss(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    const ggml_tensor * src0 = op->src[0];
+    const ggml_tensor * src1 = op->src[1];
+
+    GGML_TENSOR_LOCALS(int32_t,  ne0, src0, ne);
+    GGML_TENSOR_LOCALS(uint64_t, nb0, src0, nb);
+
+    ggml_metal_kargs_cross_entropy_loss args = {
+        /*.ne0 =*/ ne00,
+        /*.ne1 =*/ ne01,
+        /*.ne2 =*/ ne02,
+        /*.ne3 =*/ ne03,
+        /*.nb1 =*/ nb01,
+        /*.nb2 =*/ nb02,
+        /*.nb3 =*/ nb03,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_cross_entropy_loss(lib, op);
+
+    const int nth = 256;
+    const int num_simd_groups = (nth + 31) / 32;
+    const size_t smem = GGML_PAD(num_simd_groups * sizeof(float), 16);
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src0), 1);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src1), 2);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op), 3);
+    ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, 1, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
+int ggml_metal_op_cross_entropy_loss_back(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    const ggml_tensor * grad = op->src[0];
+    const ggml_tensor * src0 = op->src[1];
+    const ggml_tensor * src1 = op->src[2];
+
+    GGML_TENSOR_LOCALS(int32_t,  ne0, src0, ne);
+    GGML_TENSOR_LOCALS(uint64_t, nb0, src0, nb);
+
+    ggml_metal_kargs_cross_entropy_loss_back args = {
+        /*.ne0 =*/ ne00,
+        /*.ne1 =*/ ne01,
+        /*.ne2 =*/ ne02,
+        /*.ne3 =*/ ne03,
+        /*.nb1 =*/ nb01,
+        /*.nb2 =*/ nb02,
+        /*.nb3 =*/ nb03,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_cross_entropy_loss_back(lib, op);
+
+    const int nth = 256;
+    const int num_simd_groups = (nth + 31) / 32;
+    const size_t smem = GGML_PAD(num_simd_groups * sizeof(float), 16);
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(grad), 1);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src0), 2);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(src1), 3);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op), 4);
+    ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, ne01, ne02, ne03, nth, 1, 1);
 
     return 1;
 }
