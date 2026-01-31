@@ -1036,6 +1036,10 @@ bool ggml_metal_device_supports_op(ggml_metal_device_t dev, const struct ggml_te
                 op->type == GGML_TYPE_I64;
         case GGML_OP_ARGMAX:
             return has_simdgroup_reduction;
+        case GGML_OP_CROSS_ENTROPY_LOSS:
+            return has_simdgroup_reduction;
+        case GGML_OP_CROSS_ENTROPY_LOSS_BACK:
+            return has_simdgroup_reduction;
         case GGML_OP_NORM:
         case GGML_OP_RMS_NORM:
             return has_simdgroup_reduction && (ggml_is_contiguous_rows(op->src[0]));
