@@ -65,5 +65,5 @@ fi
 
 printf "Done! Model '$model' saved in 'models/gpt-2-$model/ggml-model.bin'\n"
 printf "You can now use it like this:\n\n"
-printf "  $ ./bin/gpt-2 -m models/gpt-2-$model/ggml-model.bin -p \"This is an example\"\n"
+printf "  $ ./bin/gpt-2-backend -m models/gpt-2-$model/ggml-model.bin -p \"This is an example\"\n"
 printf "\n"
