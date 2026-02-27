@@ -57,6 +57,7 @@ while read c; do
         ggml/src/CMakeLists.txt \
         ggml/cmake/FindSIMD.cmake \
         ggml/src/ggml* \
+        ggml/src/gguf* \
         ggml/include/ggml*.h \
         ggml/include/gguf*.h \
         examples/common-ggml.h \
@@ -93,6 +94,7 @@ if [ -f $SRC_GGML/whisper-src.patch ]; then
     # ggml/cmake/FindSIMD.cmake -> cmake/FindSIMD.cmake
     #
     # ggml/src/ggml* -> src/ggml*
+    # ggml/src/gguf* -> src/gguf*
     #
     # ggml/include/ggml*.h -> include/ggml*.h
     # ggml/include/gguf*.h -> include/gguf*.h
@@ -110,6 +112,7 @@ if [ -f $SRC_GGML/whisper-src.patch ]; then
         -e 's/\/ggml\/src\/CMakeLists\.txt/\/src\/CMakeLists.txt/g' \
         -e 's/\/ggml\/cmake\/FindSIMD\.cmake/\/cmake\/FindSIMD.cmake/g' \
         -e 's/\/ggml\/src\/ggml(.*)/\/src\/ggml\1/g' \
+        -e 's/\/ggml\/src\/gguf(.*)/\/src\/gguf\1/g' \
         -e 's/\/ggml\/include\/ggml(.*)\.h/\/include\/ggml\1.h/g' \
         -e 's/\/ggml\/include\/gguf(.*)\.h/\/include\/gguf\1.h/g' \
         -e 's/\/examples\/common\.h/\/examples\/common.h/g' \

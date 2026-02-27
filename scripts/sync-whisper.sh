@@ -5,6 +5,7 @@ cp -rpv ../whisper.cpp/ggml/src/CMakeLists.txt   src/CMakeLists.txt
 cp -rpv ../whisper.cpp/ggml/cmake/FindSIMD.cmake cmake/FindSIMD.cmake
 
 cp -rpv ../whisper.cpp/ggml/src/ggml* src/
+cp -rpv ../whisper.cpp/ggml/src/gguf* src/
 
 cp -rpv ../whisper.cpp/ggml/include/ggml*.h include/
 cp -rpv ../whisper.cpp/ggml/include/gguf*.h include/

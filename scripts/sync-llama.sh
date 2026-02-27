@@ -7,6 +7,7 @@ cp -rpv ../llama.cpp/ggml/cmake/*              cmake/
 cp -rpv ../llama.cpp/ggml/src/ggml-cpu/cmake/* src/ggml-cpu/cmake/
 
 cp -rpv ../llama.cpp/ggml/src/ggml* src/
+cp -rpv ../llama.cpp/ggml/src/gguf* src/
 
 cp -rpv ../llama.cpp/ggml/include/ggml*.h include/
 cp -rpv ../llama.cpp/ggml/include/gguf*.h include/
