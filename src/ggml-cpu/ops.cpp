@@ -6193,7 +6193,7 @@ static void ggml_compute_forward_im2col_f16(
     const ggml_tensor * src1 = dst->src[1];
 
     GGML_ASSERT(src0->type == GGML_TYPE_F16);
-    GGML_ASSERT(src1->type == GGML_TYPE_F32);
+    GGML_ASSERT(src1->type == GGML_TYPE_F16 || src1->type == GGML_TYPE_F32);
     GGML_ASSERT( dst->type == GGML_TYPE_F16);
 
     GGML_TENSOR_BINARY_OP_LOCALS;
