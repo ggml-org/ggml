@@ -107,7 +107,8 @@ static bool load_model(const std::string & fname, yolo_model & model) {
         ggml_backend_tensor_set(cur, ggml_get_data(src), 0, n_size);
     }
     gguf_free(gguf_ctx);
-
+    ggml_free(tmp_ctx);
+    
     model.width  = 416;
     model.height = 416;
     model.conv2d_layers.resize(13);
