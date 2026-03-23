@@ -230,6 +230,8 @@ struct ggml_metal_device_props {
 
     bool supports_gpu_family_apple7;
 
+    int gpu_family_apple; // highest MTLGPUFamilyApple level (e.g. 7=M1, 8=M2, 9=M3/M4); 0 if unknown
+
     int op_offload_min_batch_size;
 };
 

@@ -2681,7 +2681,22 @@ int ggml_metal_op_flash_attn_ext(ggml_metal_op_t ctx, int idx) {
     ggml_metal_buffer_id bid_tmp = bid_blk;
     bid_tmp.offs += ggml_metal_op_flash_attn_ext_extra_blk(op);
 
-    if (!ggml_metal_op_flash_attn_ext_use_vec(op)) {
+    // vec/tiled kernel selection policy, informed by MFA's per-family parameter tables.
+    // the vec kernel is optimized for small batch (decode) workloads.
+    // Apple9+ (M3/M4): smaller threadgroups are preferred (MFA blockM=16); extend vec range.
+    // Apple7/8 (M1/M2): larger threadgroups preferred (MFA blockM=32); keep narrower vec range.
+    bool use_vec;
+    if (ne00 % 32 != 0) {
+        use_vec = false; // vec kernel requires head size divisible by 32
+    } else if (props_dev->gpu_family_apple >= 9) {
+        use_vec = (ne01 < 32);
+    } else if (props_dev->gpu_family_apple >= 7) {
+        use_vec = (ne01 < 16);
+    } else {
+        use_vec = ggml_metal_op_flash_attn_ext_use_vec(op);
+    }
+
+    if (!use_vec) {
         // half8x8 kernel
         const int nqptg = OP_FLASH_ATTN_EXT_NQPSG; // queries per threadgroup
         const int ncpsg = OP_FLASH_ATTN_EXT_NCPSG; // cache values per simdgroup
@@ -2790,9 +2805,20 @@ int ggml_metal_op_flash_attn_ext(ggml_metal_op_t ctx, int idx) {
         //    nsgmax /= 2;
         //}
 
-        // simdgroups per threadgroup (a.k.a. warps)
-        //nsg = ne01 <= nqptg ? MAX(4, MIN(nsgmax, MIN(ne11/ncpsg, (int64_t) pipeline.maxTotalThreadsPerThreadgroup/32))) : 4;
-        int32_t nsg = ne00 >= 512 ? 8 : 4;
+        // simdgroups per threadgroup (a.k.a. warps), informed by MFA per-family tables.
+        // Apple7/8 (M1/M2): MFA uses blockM=32 (larger threadgroups) — try NSG=8 for
+        //   medium heads where more simdgroups can cooperate on the KV iteration.
+        // Apple9+ (M3/M4): MFA uses blockM=16 (smaller threadgroups) — NSG=4 is preferred
+        //   for heads ≤ 128; NSG=8 only for very large heads.
+        // Fallback: original heuristic.
+        int32_t nsg;
+        if (props_dev->gpu_family_apple >= 9) {
+            nsg = ne00 >= 512 ? 8 : 4;
+        } else if (props_dev->gpu_family_apple >= 7) {
+            nsg = (ne00 >= 256 || (ne00 >= 128 && ne11 >= 512)) ? 8 : 4;
+        } else {
+            nsg = ne00 >= 512 ? 8 : 4;
+        }
 
         const size_t smem = FATTN_SMEM(nsg);
 

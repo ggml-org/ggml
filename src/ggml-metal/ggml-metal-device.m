@@ -820,9 +820,11 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
             // https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf
             // https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
             {
+                dev->props.gpu_family_apple = 0;
                 for (int i = MTLGPUFamilyApple1 + 20; i >= MTLGPUFamilyApple1; --i) {
                     if ([dev->mtl_device supportsFamily:i]) {
-                        GGML_LOG_INFO("%s: GPU family: MTLGPUFamilyApple%d  (%d)\n", __func__, i - (int) MTLGPUFamilyApple1 + 1, i);
+                        dev->props.gpu_family_apple = i - (int) MTLGPUFamilyApple1 + 1;
+                        GGML_LOG_INFO("%s: GPU family: MTLGPUFamilyApple%d  (%d)\n", __func__, dev->props.gpu_family_apple, i);
                         break;
                     }
                 }
