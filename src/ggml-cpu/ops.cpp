@@ -9953,10 +9953,6 @@ static void ggml_compute_forward_rwkv_wkv6_f32(
     const int ith = params->ith;
     const int nth = params->nth;
 
-    if (ith >= HEADS) {
-        return;
-    }
-
     const int h_start = (HEADS * ith) / nth;
     const int h_end = ((HEADS * (ith + 1)) / nth < HEADS) ?
                 (HEADS * (ith + 1)) / nth : HEADS;
@@ -9977,6 +9973,10 @@ static void ggml_compute_forward_rwkv_wkv6_f32(
         memset(dst_data, 0, T * C * sizeof(float));
     }
     ggml_barrier(params->threadpool);
+
+    if (ith >= HEADS) {
+        return;
+    }
 
 
     #if defined(__AVX__) && !defined(__AVX512F__)
@@ -10170,10 +10170,6 @@ static void ggml_compute_forward_gla_f32(
     const int ith = params->ith;
     const int nth = params->nth;
 
-    if (ith >= HEADS) {
-        return;
-    }
-
     const int h_start = (HEADS * ith) / nth;
     const int h_end = ((HEADS * (ith + 1)) / nth < HEADS) ?
                 (HEADS * (ith + 1)) / nth : HEADS;
@@ -10193,6 +10189,10 @@ static void ggml_compute_forward_gla_f32(
         memset(dst_data, 0, T * C * sizeof(float));
     }
     ggml_barrier(params->threadpool);
+
+    if (ith >= HEADS) {
+        return;
+    }
 
 
     #if defined(__AVX__) && !defined(__AVX512F__)
