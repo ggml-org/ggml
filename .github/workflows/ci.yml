@@ -244,29 +244,30 @@ jobs:
   #      run: |
   #        bash ./ci/run.sh ~/results/ggml /mnt/ggml
 
-  ggml-ci-mac-metal:
-    runs-on: [self-hosted, macOS, ARM64]
-
-    steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
-
-      - name: Test
-        id: ggml-ci
-        run: |
-          GG_BUILD_METAL=1 bash ./ci/run.sh ~/results/ggml ~/mnt/ggml
-
-  ggml-ci-mac-vulkan:
-    runs-on: [self-hosted, macOS, ARM64]
-
-    steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
-
-      - name: Test
-        id: ggml-ci
-        run: |
-          vulkaninfo --summary
-          GG_BUILD_VULKAN=1 bash ./ci/run.sh ~/results/ggml ~/mnt/ggml
+  # TODO: sandbox Mac runners
+  #ggml-ci-mac-metal:
+  #  runs-on: [self-hosted, macOS, ARM64]
+  #
+  #  steps:
+  #    - name: Clone
+  #      id: checkout
+  #      uses: actions/checkout@v6
+  #
+  #    - name: Test
+  #      id: ggml-ci
+  #      run: |
+  #        GG_BUILD_METAL=1 bash ./ci/run.sh ~/results/ggml ~/mnt/ggml
+  #
+  #ggml-ci-mac-vulkan:
+  #  runs-on: [self-hosted, macOS, ARM64]
+  #
+  #  steps:
+  #    - name: Clone
+  #      id: checkout
+  #      uses: actions/checkout@v6
+  #
+  #    - name: Test
+  #      id: ggml-ci
+  #      run: |
+  #        vulkaninfo --summary
+  #        GG_BUILD_VULKAN=1 bash ./ci/run.sh ~/results/ggml ~/mnt/ggml
