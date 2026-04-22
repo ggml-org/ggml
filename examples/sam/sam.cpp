@@ -2230,6 +2230,7 @@ bool sam_params_parse(int argc, char ** argv, sam_params & params) {
 
 
 int main(int argc, char ** argv) {
+    ggml_time_init();
     const int64_t t_main_start_us = ggml_time_us();
 
     sam_params params;
