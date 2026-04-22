@@ -3300,6 +3300,63 @@ inline float block_q_n_dot_y(device const block_q5_1 * qb_curr, float sumy, thre
     return d * (acc[0] + acc[1] + acc[2] + acc[3]) + sumy * m;
 }
 
+// These function constants are also declared below for readability next to
+// the kernels that use them, but the helpers here reference them so they
+// must be visible already.
+constant bool FC_mul_mv_has_bias_     [[function_constant(FC_MUL_MV + 2)]];
+constant bool FC_mul_mv_has_residual_ [[function_constant(FC_MUL_MV + 3)]];
+#define FC_mul_mv_has_bias     FC_mul_mv_has_bias_
+#define FC_mul_mv_has_residual FC_mul_mv_has_residual_
+
+// Post-impl bias-and-residual adder used by the Q-variant mul_mv wrappers
+// when fused with either ADD(bias) or ADD(bias) + ADD(residual).  After the
+// impl has written its sums to dst we only need one thread per row to add
+// the extra terms back in.  Bias is a broadcast vector of shape [ne0];
+// residual has the same shape and stride as dst.  Either or both can be
+// disabled via their function constant, in which case the Metal compiler
+// drops the corresponding branch at specialisation time.
+//
+// NOTE: the caller is responsible for selecting which simdgroups invoke
+// this helper.  For kernels where each simdgroup writes to its *own* set
+// of output rows (mul_vec_q_n_f32_impl, where r0 is derived from sgitg)
+// every simdgroup must call this with its own r0.  For kernels where all
+// simdgroups cooperate on the *same* output rows via
+// helper_mv_reduce_and_write (e.g. Q8_0), only sgitg == 0 should call.
+template<short NR0>
+static inline void helper_mv_add_bias(
+        device       char * dst,
+        device const char * bias,
+        device const char * residual,
+        constant ggml_metal_kargs_mul_mv & args,
+        const int r0,
+        const int r1,
+        const int im,
+        ushort tiisg) {
+    if (!FC_mul_mv_has_bias && !FC_mul_mv_has_residual) {
+        return;
+    }
+    if (tiisg != 0) {
+        return;
+    }
+
+    const uint64_t base_off = (uint64_t) im * args.ne0 * args.ne1 + (uint64_t) r1 * args.ne0;
+
+    device       float * dst_f32      = (device       float *) dst + base_off;
+    device const float * bias_f32     = (device const float *) bias;
+    device const float * residual_f32 = (device const float *) residual + base_off;
+
+    for (short row = 0; row < NR0 && r0 + row < args.ne01; ++row) {
+        float v = dst_f32[r0 + row];
+        if (FC_mul_mv_has_bias) {
+            v += bias_f32[r0 + row];
+        }
+        if (FC_mul_mv_has_residual) {
+            v += residual_f32[r0 + row];
+        }
+        dst_f32[r0 + row] = v;
+    }
+}
+
 template<short NR0>
 static inline void helper_mv_reduce_and_write(
         device float * dst_f32,
@@ -3342,8 +3399,11 @@ static inline void helper_mv_reduce_and_write(
     }
 }
 
-constant short FC_mul_mv_nsg   [[function_constant(FC_MUL_MV + 0)]];
-constant short FC_mul_mv_nxpsg [[function_constant(FC_MUL_MV + 1)]];
+constant short FC_mul_mv_nsg      [[function_constant(FC_MUL_MV + 0)]];
+constant short FC_mul_mv_nxpsg    [[function_constant(FC_MUL_MV + 1)]];
+// FC_mul_mv_has_bias (FC_MUL_MV + 2) is declared above as FC_mul_mv_has_bias_
+// so helper_mv_reduce_and_write can reference it before the kernel wrappers
+// down here; the macro at that declaration exposes the canonical name.
 
 template<typename block_q_type, short NR0, typename args_t>
 void mul_vec_q_n_f32_impl(
@@ -3517,11 +3577,20 @@ kernel void kernel_mul_mv_q4_0_f32(
         device const char * src0,
         device const char * src1,
         device       char * dst,
+        device const char * bias,
+        device const char * residual,
         threadgroup  char * shmem [[threadgroup(0)]],
         uint3  tgpig[[threadgroup_position_in_grid]],
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
     mul_vec_q_n_f32_impl<block_q4_0, N_R0_Q4_0, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
+    // Each simdgroup in this threadgroup writes its own NR0 output rows,
+    // so every sgitg has to call the helper for its own r0.
+    helper_mv_add_bias<N_R0_Q4_0>(dst, bias, residual, args,
+                                  /*r0=*/ ((int) tgpig.x * FC_mul_mv_nsg + (int) sgitg) * N_R0_Q4_0,
+                                  /*r1=*/ (int) tgpig.y,
+                                  /*im=*/ (int) tgpig.z,
+                                  tiisg);
 }
 
 kernel void kernel_mul_mv_q4_1_f32(
@@ -3529,11 +3598,18 @@ kernel void kernel_mul_mv_q4_1_f32(
         device const char * src0,
         device const char * src1,
         device       char * dst,
+        device const char * bias,
+        device const char * residual,
         threadgroup  char * shmem [[threadgroup(0)]],
         uint3  tgpig[[threadgroup_position_in_grid]],
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
      mul_vec_q_n_f32_impl<block_q4_1, N_R0_Q4_1, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
+     helper_mv_add_bias<N_R0_Q4_1>(dst, bias, residual, args,
+                                   /*r0=*/ ((int) tgpig.x * FC_mul_mv_nsg + (int) sgitg) * N_R0_Q4_1,
+                                   /*r1=*/ (int) tgpig.y,
+                                   /*im=*/ (int) tgpig.z,
+                                   tiisg);
 }
 
 kernel void kernel_mul_mv_q5_0_f32(
@@ -3541,11 +3617,18 @@ kernel void kernel_mul_mv_q5_0_f32(
         device const char * src0,
         device const char * src1,
         device       char * dst,
+        device const char * bias,
+        device const char * residual,
         threadgroup  char * shmem [[threadgroup(0)]],
         uint3  tgpig[[threadgroup_position_in_grid]],
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
     mul_vec_q_n_f32_impl<block_q5_0, N_R0_Q5_0, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
+    helper_mv_add_bias<N_R0_Q5_0>(dst, bias, residual, args,
+                                  /*r0=*/ ((int) tgpig.x * FC_mul_mv_nsg + (int) sgitg) * N_R0_Q5_0,
+                                  /*r1=*/ (int) tgpig.y,
+                                  /*im=*/ (int) tgpig.z,
+                                  tiisg);
 }
 
 kernel void kernel_mul_mv_q5_1_f32(
@@ -3553,11 +3636,18 @@ kernel void kernel_mul_mv_q5_1_f32(
         device const char * src0,
         device const char * src1,
         device       char * dst,
+        device const char * bias,
+        device const char * residual,
         threadgroup  char * shmem [[threadgroup(0)]],
         uint3  tgpig[[threadgroup_position_in_grid]],
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
     mul_vec_q_n_f32_impl<block_q5_1, N_R0_Q5_1, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
+    helper_mv_add_bias<N_R0_Q5_1>(dst, bias, residual, args,
+                                  /*r0=*/ ((int) tgpig.x * FC_mul_mv_nsg + (int) sgitg) * N_R0_Q5_1,
+                                  /*r1=*/ (int) tgpig.y,
+                                  /*im=*/ (int) tgpig.z,
+                                  tiisg);
 }
 
 template<short NR0, typename args_t>
@@ -3640,11 +3730,23 @@ kernel void kernel_mul_mv_q8_0_f32(
         device const char * src0,
         device const char * src1,
         device       char * dst,
+        device const char * bias,
+        device const char * residual,
         threadgroup  char * shmem [[threadgroup(0)]],
         uint3  tgpig[[threadgroup_position_in_grid]],
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
     kernel_mul_mv_q8_0_f32_impl<N_R0_Q8_0, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
+    // Q8_0 uses helper_mv_reduce_and_write: all simdgroups cooperate on the
+    // *same* output rows, so gate the bias add to sgitg == 0 to avoid
+    // double-counting.  r0 derives from tgpig.x alone.
+    if (sgitg == 0) {
+        helper_mv_add_bias<N_R0_Q8_0>(dst, bias, residual, args,
+                                      /*r0=*/ (int) tgpig.x * N_R0_Q8_0,
+                                      /*r1=*/ (int) tgpig.y,
+                                      /*im=*/ (int) tgpig.z,
+                                      tiisg);
+    }
 }
 
 // mat-vec kernel processing in chunks of float4
@@ -4830,33 +4932,63 @@ typedef void (conv_transpose_1d_t)(
         device const float * src1,
         device        char * dst,
         uint3   tgpig[[threadgroup_position_in_grid]],
-        uint3    tgpg[[threadgroups_per_grid]]);
+        uint3    tgpg[[threadgroups_per_grid]],
+        uint3   tpitg[[thread_position_in_threadgroup]],
+        uint3     ntg[[threads_per_threadgroup]]);
 
 template <typename T>
 kernel void kernel_conv_transpose_1d(
         constant ggml_metal_kargs_conv_transpose_1d & args,
-        device const     T * src0,
-        device const float * src1,
-        device        char * dst,
-        uint3   tgpig[[threadgroup_position_in_grid]],
-        uint3   tgpg[[threadgroups_per_grid]]) {
+        device const     T * src0,    // kernel: [K, OC, IC] row-major
+        device const float * src1,    // input:  [IL, IC] row-major
+        device        char * dst,     // output: [OL, OC]
+        uint3 tgpig[[threadgroup_position_in_grid]],
+        uint3  tgpg[[threadgroups_per_grid]],
+        uint3 tpitg[[thread_position_in_threadgroup]],
+        uint3   ntg[[threads_per_threadgroup]]) {
+
+    // grid: (OL, OC, 1), threadgroup: (SIMDGROUP_WIDTH=32, 1, 1)
+    //   each threadgroup computes one output pixel; threads in the simdgroup
+    //   parallelise the reduction across input channels (IC).
+    const int ol  = tgpig.x;
+    const int oc  = tgpig.y;
+    const int OC  = tgpg.y;
+    const int tid = tpitg.x;
+    const int nth = ntg.x;
+
+    const int K  = args.K;
+    const int IL = args.IL;
+    const int IC = args.IC;
+    const int s0 = args.s0;
+
+    // Transposed conv: out[ol, oc] = sum over (i, ic, ki) of
+    //   kernel[ki, oc, ic] * input[i, ic]    where i*s0 + ki == ol
+    // Narrow (i, ki) to the finite set of contributing pairs instead of
+    // the naive O(IC * IL) scan.  For fixed ol the valid i range is:
+    //   max(0, ceil((ol - K + 1)/s0)) <= i <= min(IL-1, ol/s0)
+    int i_start = (ol - K + 1 + s0 - 1) / s0;
+    if (i_start < 0) i_start = 0;
+    int i_end = ol / s0;
+    if (i_end > IL - 1) i_end = IL - 1;
 
     float v = 0.0f;
-
-    for (int64_t c = 0; c < args.IC; c++) {
-        const int32_t kernel_offset = c * tgpg[1] * args.K + args.K * tgpig[1];
-        const int32_t input_offset = c * args.IL;
-
-        for (int64_t i = 0; i < args.IL; i++) {
-            if (tgpig[0] >= i * args.s0 && tgpig[0] < i * args.s0 + args.K) {
-                v += src0[kernel_offset + tgpig[0] - i * args.s0] * src1[input_offset + i];
-            }
+    // Each thread handles a strided slice of IC.
+    for (int ic = tid; ic < IC; ic += nth) {
+        const int kernel_base = (ic * OC + oc) * K;
+        const int input_base  = ic * IL;
+        for (int i = i_start; i <= i_end; ++i) {
+            const int ki = ol - i * s0;
+            v += float(src0[kernel_base + ki]) * src1[input_base + i];
         }
     }
 
-    device float * dst_ptr = (device float *) (dst + tgpig[0] * args.nb0 + tgpig[1] * args.nb1);
+    // Reduce across the 32-thread simdgroup (threadgroup == 1 simdgroup).
+    v = simd_sum(v);
 
-    dst_ptr[0] = v;
+    if (tid == 0) {
+        device float * dst_ptr = (device float *) (dst + ol * args.nb0 + oc * args.nb1);
+        dst_ptr[0] = v;
+    }
 }
 
 template [[host_name("kernel_conv_transpose_1d_f32_f32")]]
@@ -4866,7 +4998,9 @@ kernel void kernel_conv_transpose_1d<float>(
     device const float * src1,
     device        char * dst,
     uint3   tgpig[[threadgroup_position_in_grid]],
-    uint3    tgpg[[threadgroups_per_grid]]);
+    uint3    tgpg[[threadgroups_per_grid]],
+    uint3   tpitg[[thread_position_in_threadgroup]],
+    uint3     ntg[[threads_per_threadgroup]]);
 
 template [[host_name("kernel_conv_transpose_1d_f16_f32")]]
 kernel void kernel_conv_transpose_1d<half>(
@@ -4875,7 +5009,9 @@ kernel void kernel_conv_transpose_1d<half>(
     device const float * src1,
     device        char * dst,
     uint3   tgpig[[threadgroup_position_in_grid]],
-    uint3    tgpg[[threadgroups_per_grid]]);
+    uint3    tgpg[[threadgroups_per_grid]],
+    uint3   tpitg[[thread_position_in_threadgroup]],
+    uint3     ntg[[threads_per_threadgroup]]);
 
 
 typedef void (conv_transpose_2d_t)(
@@ -5250,17 +5386,23 @@ kernel void kernel_pad_f32(
     const int64_t i2 = tgpig.y;
     const int64_t i1 = tgpig.x;
 
-    const int64_t i03 = i3;
-    const int64_t i02 = i2;
-    const int64_t i01 = i1;
+    // map output coord (i1, i2, i3) back to input coord with front offsets
+    const int64_t i03 = i3 - args.lp3;
+    const int64_t i02 = i2 - args.lp2;
+    const int64_t i01 = i1 - args.lp1;
 
-    device const float * src0_ptr = (device const float *) (src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01);
     device       float * dst_ptr  = (device       float *) (dst  +  i3*args.nb3  +  i2*args.nb2  +  i1*args.nb1);
 
-    if (i1 < args.ne01 && i2 < args.ne02 && i3 < args.ne03) {
+    const bool row_inside = (i01 >= 0 && i01 < args.ne01 &&
+                             i02 >= 0 && i02 < args.ne02 &&
+                             i03 >= 0 && i03 < args.ne03);
+
+    if (row_inside) {
+        device const float * src0_ptr = (device const float *) (src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01);
         for (int i0 = tpitg.x; i0 < args.ne0; i0 += ntg.x) {
-            if (i0 < args.ne00) {
-                dst_ptr[i0] = src0_ptr[i0];
+            const int64_t i00 = i0 - args.lp0;
+            if (i00 >= 0 && i00 < args.ne00) {
+                dst_ptr[i0] = src0_ptr[i00];
             } else {
                 dst_ptr[i0] = 0.0f;
             }
@@ -5272,6 +5414,37 @@ kernel void kernel_pad_f32(
     for (int i0 = tpitg.x; i0 < args.ne0; i0 += ntg.x) {
         dst_ptr[i0] = 0.0f;
     }
+}
+
+kernel void kernel_diag_mask_inf_f32(
+    constant   ggml_metal_kargs_diag_mask_inf & args,
+    device  const float * src,
+    device        float * dst,
+    uint3 tgpig[[threadgroup_position_in_grid]],
+    uint3 tpitg[[thread_position_in_threadgroup]],
+    uint3   ntg[[threads_per_threadgroup]]) {
+
+    // Grid layout:
+    //   tgpig.x = row index (0..nrows)
+    //   tgpig.y = tile index across columns
+    //   tpitg.x = column within tile (0..ntg.x)
+
+    const int row = tgpig.x;
+    const int col_base = tgpig.y * ntg.x;
+    const int col = col_base + tpitg.x;
+
+    if (col >= args.ncols) {
+        return;
+    }
+
+    const int i = row * args.ncols + col;
+    const int row_in_channel = row % args.rows_per_channel;
+
+    // Use finite sentinel so subsequent soft_max produces proper zeros
+    // (matches the CUDA implementation).
+    dst[i] = col > args.n_past + row_in_channel
+                ? (src[i] - FLT_MAX)
+                : src[i];
 }
 
 kernel void kernel_pad_reflect_1d_f32(

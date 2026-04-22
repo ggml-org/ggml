@@ -993,7 +993,18 @@ typedef struct {
     uint64_t nb1;
     uint64_t nb2;
     uint64_t nb3;
+    // front padding on each input dim; needed to emulate ggml_pad_ext
+    int32_t  lp0;
+    int32_t  lp1;
+    int32_t  lp2;
+    int32_t  lp3;
 } ggml_metal_kargs_pad;
+
+typedef struct {
+    int32_t ncols;
+    int32_t rows_per_channel;
+    int32_t n_past;
+} ggml_metal_kargs_diag_mask_inf;
 
 typedef struct {
     int64_t  ne00;

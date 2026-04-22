@@ -699,7 +699,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm(ggml_meta
     return res;
 }
 
-ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_metal_library_t lib, const ggml_tensor * op) {
+ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_metal_library_t lib, const ggml_tensor * op, bool has_bias, bool has_residual) {
     GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
     GGML_TENSOR_LOCALS( int32_t, ne1, op->src[1], ne);
 
@@ -857,13 +857,15 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
     };
 
     snprintf(base, 256, "kernel_mul_mv_%s_%s%s", ggml_type_name(tsrc0), ggml_type_name(tsrc1), suffix);
-    snprintf(name, 256, "%s_nsg=%d", base, nsg);
+    snprintf(name, 256, "%s_nsg=%d_bias=%d_res=%d", base, nsg, (int) has_bias, (int) has_residual);
 
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
     if (!res.pipeline) {
         ggml_metal_cv_t cv = ggml_metal_cv_init();
 
-        ggml_metal_cv_set_int16(cv, nsg, FC_MUL_MV + 0);
+        ggml_metal_cv_set_int16(cv, nsg,          FC_MUL_MV + 0);
+        ggml_metal_cv_set_bool (cv, has_bias,     FC_MUL_MV + 2);
+        ggml_metal_cv_set_bool (cv, has_residual, FC_MUL_MV + 3);
 
         res = ggml_metal_library_compile_pipeline(lib, base, name, cv);
 
@@ -1849,6 +1851,20 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_pad_reflect_1d(g
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
     if (!res.pipeline) {
         res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    return res;
+}
+
+ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_diag_mask_inf(ggml_metal_library_t lib, const ggml_tensor * op) {
+    assert(op->op == GGML_OP_DIAG_MASK_INF);
+    GGML_UNUSED(op);
+
+    const char * base = "kernel_diag_mask_inf_f32";
+
+    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, base);
+    if (!res.pipeline) {
+        res = ggml_metal_library_compile_pipeline(lib, base, base, nullptr);
     }
 
     return res;

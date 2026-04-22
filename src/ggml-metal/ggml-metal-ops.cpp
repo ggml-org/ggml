@@ -410,6 +410,10 @@ static int ggml_metal_op_encode_impl(ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = ggml_metal_op_pad_reflect_1d(ctx, idx);
             } break;
+        case GGML_OP_DIAG_MASK_INF:
+            {
+                n_fuse = ggml_metal_op_diag_mask_inf(ctx, idx);
+            } break;
         case GGML_OP_ARANGE:
             {
                 n_fuse = ggml_metal_op_arange(ctx, idx);
@@ -2186,7 +2190,85 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
         ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
         ggml_metal_encoder_dispatch_threadgroups(enc, ((ne11 + 31)/32), ((ne01 + 63)/64), ne12*ne13, 128, 1, 1);
     } else {
-        auto pipeline = ggml_metal_library_get_pipeline_mul_mv(lib, op);
+        // Look ahead: can we fuse a following ADD(bias) (optionally followed
+        // by another ADD(residual)) into this mat-vec kernel?  Saves one or
+        // two bin_fuse dispatches per linear layer, which matters on Metal
+        // where per-dispatch overhead dominates autoregressive T3 steps.
+        //
+        // Currently wired only for kernels that accept bias/residual buffer
+        // slots: Q4_0 / Q4_1 / Q5_0 / Q5_1 / Q8_0.  Non-Q matmul kernels
+        // (mul_mv_t_t for F32/F16/BF16 and the _4 variants) still fall back
+        // to the separate bin_fuse path.
+        const ggml_type tsrc0 = op->src[0]->type;
+        const bool kernel_supports_bias =
+            tsrc0 == GGML_TYPE_Q4_0 || tsrc0 == GGML_TYPE_Q4_1 ||
+            tsrc0 == GGML_TYPE_Q5_0 || tsrc0 == GGML_TYPE_Q5_1 ||
+            tsrc0 == GGML_TYPE_Q8_0;
+
+        bool     has_bias     = false;
+        bool     has_residual = false;
+        int      n_fuse       = 1;
+        ggml_metal_buffer_id bid_bias     = {};
+        ggml_metal_buffer_id bid_residual = {};
+
+        auto bias_ok = [&](const ggml_tensor * b) {
+            return b &&
+                   ggml_is_contiguous(b) &&
+                   b->type == GGML_TYPE_F32 &&
+                   ggml_nelements(b) == ne0 &&
+                   b->ne[0]          == ne0;
+        };
+        auto residual_ok = [&](const ggml_tensor * r, const ggml_tensor * mm) {
+            return r && mm &&
+                   ggml_is_contiguous(r) &&
+                   r->type == GGML_TYPE_F32 &&
+                   ggml_are_same_shape(r, mm);
+        };
+
+        if (ctx->use_fusion && kernel_supports_bias) {
+            // Try MUL_MAT + ADD(bias) + ADD(residual) first; it saves two
+            // dispatches per linear layer instead of one.
+            ggml_op fops3[3] = { GGML_OP_MUL_MAT, GGML_OP_ADD, GGML_OP_ADD };
+            if (ctx->can_fuse(idx, fops3, 3)) {
+                ggml_tensor * f0 = ctx->node(idx);     // mul_mat
+                ggml_tensor * f1 = ctx->node(idx + 1); // add(t0, bias)
+                ggml_tensor * f2 = ctx->node(idx + 2); // add(t1, residual)
+
+                if (f1->src[0] == f0 && f2->src[0] == f1 &&
+                    bias_ok(f1->src[1]) &&
+                    residual_ok(f2->src[1], f0)) {
+                    ggml_metal_buffer_id bid_b = ggml_metal_get_buffer_id(f1->src[1]);
+                    ggml_metal_buffer_id bid_r = ggml_metal_get_buffer_id(f2->src[1]);
+                    if (bid_b.metal && bid_r.metal) {
+                        has_bias     = true;
+                        has_residual = true;
+                        bid_bias     = bid_b;
+                        bid_residual = bid_r;
+                        n_fuse       = 3;
+                    }
+                }
+            }
+
+            // Fall back to MUL_MAT + ADD(bias)
+            if (n_fuse == 1) {
+                ggml_op fops2[2] = { GGML_OP_MUL_MAT, GGML_OP_ADD };
+                if (ctx->can_fuse(idx, fops2, 2)) {
+                    ggml_tensor * f0 = ctx->node(idx);
+                    ggml_tensor * f1 = ctx->node(idx + 1);
+
+                    if (f1->src[0] == f0 && bias_ok(f1->src[1])) {
+                        ggml_metal_buffer_id bid_b = ggml_metal_get_buffer_id(f1->src[1]);
+                        if (bid_b.metal) {
+                            has_bias = true;
+                            bid_bias = bid_b;
+                            n_fuse   = 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        auto pipeline = ggml_metal_library_get_pipeline_mul_mv(lib, op, has_bias, has_residual);
 
         const int nr0 = pipeline.nr0;
         const int nr1 = pipeline.nr1;
@@ -2220,7 +2302,20 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
         ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
         ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1);
         ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2);
-        ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         3);
+        // When a fused variant is picked, dst must point to the final ADD's
+        // output tensor so the value lands where the skipped add would have
+        // written.  For n_fuse=3 that's node(idx+2); for n_fuse=2 node(idx+1);
+        // otherwise the mul_mat output itself.
+        ggml_metal_buffer_id bid_dst = (n_fuse > 1)
+            ? ggml_metal_get_buffer_id(ctx->node(idx + n_fuse - 1))
+            : ggml_metal_get_buffer_id(op);
+        ggml_metal_encoder_set_buffer  (enc, bid_dst, 3);
+        // Slots 4 and 5: bias and residual (Q-variant kernels declare these
+        // unconditionally; we bind a harmless stand-in when the corresponding
+        // function constant is false so the shader's dead-code-eliminated
+        // branch never touches the memory).
+        ggml_metal_encoder_set_buffer  (enc, has_bias     ? bid_bias     : ggml_metal_get_buffer_id(op->src[0]), 4);
+        ggml_metal_encoder_set_buffer  (enc, has_residual ? bid_residual : ggml_metal_get_buffer_id(op->src[0]), 5);
 
         ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
@@ -2232,6 +2327,8 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
         } else {
             ggml_metal_encoder_dispatch_threadgroups(enc, ((ne01 + nr0*nsg - 1)/(nr0*nsg)), ((ne11 + nr1 - 1)/nr1), ne12*ne13, 32, nsg, 1);
         }
+
+        return n_fuse;
     }
 
     return 1;
@@ -3813,7 +3910,9 @@ int ggml_metal_op_conv_transpose_1d(ggml_metal_op_t ctx, int idx) {
     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2);
     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         3);
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, OL, OC, 1, 1, 1, 1);
+    // 32 threads per threadgroup (== 1 simdgroup); threads parallelise IC and
+    // reduce via simd_sum. Dispatch one threadgroup per (OL, OC) output pixel.
+    ggml_metal_encoder_dispatch_threadgroups(enc, OL, OC, 1, 32, 1, 1);
 
     return 1;
 }
@@ -3949,6 +4048,14 @@ int ggml_metal_op_pad(ggml_metal_op_t ctx, int idx) {
     GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
     GGML_TENSOR_LOCALS(uint64_t, nb,  op,         nb);
 
+    // Front-pad amounts are stored at params[0, 2, 4, 6] by ggml_pad_ext.
+    // ggml_pad uses all-zero front padding so op_params are either
+    // zero-initialised or explicitly zero (even for older graphs).
+    const int32_t lp0 = ggml_get_op_params_i32(op, 0);
+    const int32_t lp1 = ggml_get_op_params_i32(op, 2);
+    const int32_t lp2 = ggml_get_op_params_i32(op, 4);
+    const int32_t lp3 = ggml_get_op_params_i32(op, 6);
+
     ggml_metal_kargs_pad args = {
         /*.ne00 =*/ ne00,
         /*.ne01 =*/ ne01,
@@ -3965,7 +4072,11 @@ int ggml_metal_op_pad(ggml_metal_op_t ctx, int idx) {
         /*.nb0  =*/ nb0,
         /*.nb1  =*/ nb1,
         /*.nb2  =*/ nb2,
-        /*.nb3  =*/ nb3
+        /*.nb3  =*/ nb3,
+        /*.lp0  =*/ lp0,
+        /*.lp1  =*/ lp1,
+        /*.lp2  =*/ lp2,
+        /*.lp3  =*/ lp3,
     };
 
     auto pipeline = ggml_metal_library_get_pipeline_pad(lib, op);
@@ -4024,6 +4135,39 @@ int ggml_metal_op_pad_reflect_1d(ggml_metal_op_t ctx, int idx) {
     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         2);
 
     ggml_metal_encoder_dispatch_threadgroups(enc, ne1, ne2, ne3, nth, 1, 1);
+
+    return 1;
+}
+
+int ggml_metal_op_diag_mask_inf(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    const int32_t ncols = (int32_t) op->src[0]->ne[0];
+    const int32_t nrows = (int32_t) ggml_nrows(op->src[0]);
+    const int32_t rows_per_channel = (int32_t) op->src[0]->ne[1];
+    const int32_t n_past = ((const int32_t *) op->op_params)[0];
+
+    ggml_metal_kargs_diag_mask_inf args = {
+        /*.ncols            =*/ ncols,
+        /*.rows_per_channel =*/ rows_per_channel,
+        /*.n_past           =*/ n_past,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_diag_mask_inf(lib, op);
+
+    const int nth = std::min<int>(ncols, ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
+    const int n_tiles = (ncols + nth - 1) / nth;
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1);
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         2);
+
+    // grid: (rows, col_tiles, 1); threadgroup: (nth, 1, 1)
+    ggml_metal_encoder_dispatch_threadgroups(enc, nrows, n_tiles, 1, nth, 1, 1);
 
     return 1;
 }
