@@ -1,0 +1,700 @@
+diff --git a/src/ggml-metal/ggml-metal-device.cpp b/src/ggml-metal/ggml-metal-device.cpp
+index e8548b0..5d93363 100644
+--- a/src/ggml-metal/ggml-metal-device.cpp
++++ b/src/ggml-metal/ggml-metal-device.cpp
+@@ -699,7 +699,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm(ggml_meta
+     return res;
+ }
+ 
+-ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_metal_library_t lib, const ggml_tensor * op) {
++ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_metal_library_t lib, const ggml_tensor * op, bool has_bias, bool has_residual) {
+     GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+     GGML_TENSOR_LOCALS( int32_t, ne1, op->src[1], ne);
+ 
+@@ -857,13 +857,15 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
+     };
+ 
+     snprintf(base, 256, "kernel_mul_mv_%s_%s%s", ggml_type_name(tsrc0), ggml_type_name(tsrc1), suffix);
+-    snprintf(name, 256, "%s_nsg=%d", base, nsg);
++    snprintf(name, 256, "%s_nsg=%d_bias=%d_res=%d", base, nsg, (int) has_bias, (int) has_residual);
+ 
+     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+     if (!res.pipeline) {
+         ggml_metal_cv_t cv = ggml_metal_cv_init();
+ 
+-        ggml_metal_cv_set_int16(cv, nsg, FC_MUL_MV + 0);
++        ggml_metal_cv_set_int16(cv, nsg,          FC_MUL_MV + 0);
++        ggml_metal_cv_set_bool (cv, has_bias,     FC_MUL_MV + 2);
++        ggml_metal_cv_set_bool (cv, has_residual, FC_MUL_MV + 3);
+ 
+         res = ggml_metal_library_compile_pipeline(lib, base, name, cv);
+ 
+@@ -1854,6 +1856,20 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_pad_reflect_1d(g
+     return res;
+ }
+ 
++ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_diag_mask_inf(ggml_metal_library_t lib, const ggml_tensor * op) {
++    assert(op->op == GGML_OP_DIAG_MASK_INF);
++    GGML_UNUSED(op);
++
++    const char * base = "kernel_diag_mask_inf_f32";
++
++    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, base);
++    if (!res.pipeline) {
++        res = ggml_metal_library_compile_pipeline(lib, base, base, nullptr);
++    }
++
++    return res;
++}
++
+ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_arange(ggml_metal_library_t lib, const ggml_tensor * op) {
+     assert(op->op == GGML_OP_ARANGE);
+ 
+diff --git a/src/ggml-metal/ggml-metal-device.h b/src/ggml-metal/ggml-metal-device.h
+index de43f81..b6d6b3d 100644
+--- a/src/ggml-metal/ggml-metal-device.h
++++ b/src/ggml-metal/ggml-metal-device.h
+@@ -129,7 +129,7 @@ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_gated_del
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_solve_tri         (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_ext        (ggml_metal_library_t lib, enum ggml_type tsrc0, enum ggml_type tsrc1, int nsg, int nxpsg, int r1ptg);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm            (ggml_metal_library_t lib, const struct ggml_tensor * op);
+-struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv            (ggml_metal_library_t lib, const struct ggml_tensor * op);
++struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv            (ggml_metal_library_t lib, const struct ggml_tensor * op, bool has_bias, bool has_residual);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm_id_map0    (ggml_metal_library_t lib, int ne02, int ne20);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm_id         (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id         (ggml_metal_library_t lib, const struct ggml_tensor * op);
+@@ -152,6 +152,7 @@ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_conv_3d
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_upscale           (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_pad               (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_pad_reflect_1d    (ggml_metal_library_t lib, const struct ggml_tensor * op);
++struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_diag_mask_inf     (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_arange            (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_timestep_embedding(ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_opt_step_adamw    (ggml_metal_library_t lib, const struct ggml_tensor * op);
+diff --git a/src/ggml-metal/ggml-metal-device.m b/src/ggml-metal/ggml-metal-device.m
+index 40cacb4..089854e 100644
+--- a/src/ggml-metal/ggml-metal-device.m
++++ b/src/ggml-metal/ggml-metal-device.m
+@@ -1128,12 +1128,16 @@ bool ggml_metal_device_supports_op(ggml_metal_device_t dev, const struct ggml_te
+                 return false;
+             }
+ 
+-            return (ggml_get_op_params_i32(op, 0) == 0) && (ggml_get_op_params_i32(op, 2) == 0) &&
+-                   (ggml_get_op_params_i32(op, 4) == 0) && (ggml_get_op_params_i32(op, 6) == 0);
++            // front-padding on any dim is supported via lp0..lp3 in the kernel
++            return op->src[0]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+         case GGML_OP_PAD_REFLECT_1D:
+         case GGML_OP_TIMESTEP_EMBEDDING:
+         case GGML_OP_LEAKY_RELU:
+             return op->src[0]->type == GGML_TYPE_F32;
++        case GGML_OP_DIAG_MASK_INF:
++            return op->src[0]->type == GGML_TYPE_F32 &&
++                   op->type == GGML_TYPE_F32 &&
++                   ggml_is_contiguous(op->src[0]);
+         case GGML_OP_ARGSORT:
+         case GGML_OP_TOP_K:
+         case GGML_OP_ARANGE:
+diff --git a/src/ggml-metal/ggml-metal-impl.h b/src/ggml-metal/ggml-metal-impl.h
+index 62b028f..384db80 100644
+--- a/src/ggml-metal/ggml-metal-impl.h
++++ b/src/ggml-metal/ggml-metal-impl.h
+@@ -993,8 +993,19 @@ typedef struct {
+     uint64_t nb1;
+     uint64_t nb2;
+     uint64_t nb3;
++    // front padding on each input dim; needed to emulate ggml_pad_ext
++    int32_t  lp0;
++    int32_t  lp1;
++    int32_t  lp2;
++    int32_t  lp3;
+ } ggml_metal_kargs_pad;
+ 
++typedef struct {
++    int32_t ncols;
++    int32_t rows_per_channel;
++    int32_t n_past;
++} ggml_metal_kargs_diag_mask_inf;
++
+ typedef struct {
+     int64_t  ne00;
+     int64_t  ne01;
+diff --git a/src/ggml-metal/ggml-metal-ops.cpp b/src/ggml-metal/ggml-metal-ops.cpp
+index 846225d..3555ce8 100644
+--- a/src/ggml-metal/ggml-metal-ops.cpp
++++ b/src/ggml-metal/ggml-metal-ops.cpp
+@@ -410,6 +410,10 @@ static int ggml_metal_op_encode_impl(ggml_metal_op_t ctx, int idx) {
+             {
+                 n_fuse = ggml_metal_op_pad_reflect_1d(ctx, idx);
+             } break;
++        case GGML_OP_DIAG_MASK_INF:
++            {
++                n_fuse = ggml_metal_op_diag_mask_inf(ctx, idx);
++            } break;
+         case GGML_OP_ARANGE:
+             {
+                 n_fuse = ggml_metal_op_arange(ctx, idx);
+@@ -2186,7 +2190,85 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
+         ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
+         ggml_metal_encoder_dispatch_threadgroups(enc, ((ne11 + 31)/32), ((ne01 + 63)/64), ne12*ne13, 128, 1, 1);
+     } else {
+-        auto pipeline = ggml_metal_library_get_pipeline_mul_mv(lib, op);
++        // Look ahead: can we fuse a following ADD(bias) (optionally followed
++        // by another ADD(residual)) into this mat-vec kernel?  Saves one or
++        // two bin_fuse dispatches per linear layer, which matters on Metal
++        // where per-dispatch overhead dominates autoregressive T3 steps.
++        //
++        // Currently wired only for kernels that accept bias/residual buffer
++        // slots: Q4_0 / Q4_1 / Q5_0 / Q5_1 / Q8_0.  Non-Q matmul kernels
++        // (mul_mv_t_t for F32/F16/BF16 and the _4 variants) still fall back
++        // to the separate bin_fuse path.
++        const ggml_type tsrc0 = op->src[0]->type;
++        const bool kernel_supports_bias =
++            tsrc0 == GGML_TYPE_Q4_0 || tsrc0 == GGML_TYPE_Q4_1 ||
++            tsrc0 == GGML_TYPE_Q5_0 || tsrc0 == GGML_TYPE_Q5_1 ||
++            tsrc0 == GGML_TYPE_Q8_0;
++
++        bool     has_bias     = false;
++        bool     has_residual = false;
++        int      n_fuse       = 1;
++        ggml_metal_buffer_id bid_bias     = {};
++        ggml_metal_buffer_id bid_residual = {};
++
++        auto bias_ok = [&](const ggml_tensor * b) {
++            return b &&
++                   ggml_is_contiguous(b) &&
++                   b->type == GGML_TYPE_F32 &&
++                   ggml_nelements(b) == ne0 &&
++                   b->ne[0]          == ne0;
++        };
++        auto residual_ok = [&](const ggml_tensor * r, const ggml_tensor * mm) {
++            return r && mm &&
++                   ggml_is_contiguous(r) &&
++                   r->type == GGML_TYPE_F32 &&
++                   ggml_are_same_shape(r, mm);
++        };
++
++        if (ctx->use_fusion && kernel_supports_bias) {
++            // Try MUL_MAT + ADD(bias) + ADD(residual) first; it saves two
++            // dispatches per linear layer instead of one.
++            ggml_op fops3[3] = { GGML_OP_MUL_MAT, GGML_OP_ADD, GGML_OP_ADD };
++            if (ctx->can_fuse(idx, fops3, 3)) {
++                ggml_tensor * f0 = ctx->node(idx);     // mul_mat
++                ggml_tensor * f1 = ctx->node(idx + 1); // add(t0, bias)
++                ggml_tensor * f2 = ctx->node(idx + 2); // add(t1, residual)
++
++                if (f1->src[0] == f0 && f2->src[0] == f1 &&
++                    bias_ok(f1->src[1]) &&
++                    residual_ok(f2->src[1], f0)) {
++                    ggml_metal_buffer_id bid_b = ggml_metal_get_buffer_id(f1->src[1]);
++                    ggml_metal_buffer_id bid_r = ggml_metal_get_buffer_id(f2->src[1]);
++                    if (bid_b.metal && bid_r.metal) {
++                        has_bias     = true;
++                        has_residual = true;
++                        bid_bias     = bid_b;
++                        bid_residual = bid_r;
++                        n_fuse       = 3;
++                    }
++                }
++            }
++
++            // Fall back to MUL_MAT + ADD(bias)
++            if (n_fuse == 1) {
++                ggml_op fops2[2] = { GGML_OP_MUL_MAT, GGML_OP_ADD };
++                if (ctx->can_fuse(idx, fops2, 2)) {
++                    ggml_tensor * f0 = ctx->node(idx);
++                    ggml_tensor * f1 = ctx->node(idx + 1);
++
++                    if (f1->src[0] == f0 && bias_ok(f1->src[1])) {
++                        ggml_metal_buffer_id bid_b = ggml_metal_get_buffer_id(f1->src[1]);
++                        if (bid_b.metal) {
++                            has_bias = true;
++                            bid_bias = bid_b;
++                            n_fuse   = 2;
++                        }
++                    }
++                }
++            }
++        }
++
++        auto pipeline = ggml_metal_library_get_pipeline_mul_mv(lib, op, has_bias, has_residual);
+ 
+         const int nr0 = pipeline.nr0;
+         const int nr1 = pipeline.nr1;
+@@ -2220,7 +2302,20 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
+         ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+         ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1);
+         ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2);
+-        ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         3);
++        // When a fused variant is picked, dst must point to the final ADD's
++        // output tensor so the value lands where the skipped add would have
++        // written.  For n_fuse=3 that's node(idx+2); for n_fuse=2 node(idx+1);
++        // otherwise the mul_mat output itself.
++        ggml_metal_buffer_id bid_dst = (n_fuse > 1)
++            ? ggml_metal_get_buffer_id(ctx->node(idx + n_fuse - 1))
++            : ggml_metal_get_buffer_id(op);
++        ggml_metal_encoder_set_buffer  (enc, bid_dst, 3);
++        // Slots 4 and 5: bias and residual (Q-variant kernels declare these
++        // unconditionally; we bind a harmless stand-in when the corresponding
++        // function constant is false so the shader's dead-code-eliminated
++        // branch never touches the memory).
++        ggml_metal_encoder_set_buffer  (enc, has_bias     ? bid_bias     : ggml_metal_get_buffer_id(op->src[0]), 4);
++        ggml_metal_encoder_set_buffer  (enc, has_residual ? bid_residual : ggml_metal_get_buffer_id(op->src[0]), 5);
+ 
+         ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
+ 
+@@ -2232,6 +2327,8 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
+         } else {
+             ggml_metal_encoder_dispatch_threadgroups(enc, ((ne01 + nr0*nsg - 1)/(nr0*nsg)), ((ne11 + nr1 - 1)/nr1), ne12*ne13, 32, nsg, 1);
+         }
++
++        return n_fuse;
+     }
+ 
+     return 1;
+@@ -3813,7 +3910,9 @@ int ggml_metal_op_conv_transpose_1d(ggml_metal_op_t ctx, int idx) {
+     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2);
+     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         3);
+ 
+-    ggml_metal_encoder_dispatch_threadgroups(enc, OL, OC, 1, 1, 1, 1);
++    // 32 threads per threadgroup (== 1 simdgroup); threads parallelise IC and
++    // reduce via simd_sum. Dispatch one threadgroup per (OL, OC) output pixel.
++    ggml_metal_encoder_dispatch_threadgroups(enc, OL, OC, 1, 32, 1, 1);
+ 
+     return 1;
+ }
+@@ -3949,6 +4048,14 @@ int ggml_metal_op_pad(ggml_metal_op_t ctx, int idx) {
+     GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
+     GGML_TENSOR_LOCALS(uint64_t, nb,  op,         nb);
+ 
++    // Front-pad amounts are stored at params[0, 2, 4, 6] by ggml_pad_ext.
++    // ggml_pad uses all-zero front padding so op_params are either
++    // zero-initialised or explicitly zero (even for older graphs).
++    const int32_t lp0 = ggml_get_op_params_i32(op, 0);
++    const int32_t lp1 = ggml_get_op_params_i32(op, 2);
++    const int32_t lp2 = ggml_get_op_params_i32(op, 4);
++    const int32_t lp3 = ggml_get_op_params_i32(op, 6);
++
+     ggml_metal_kargs_pad args = {
+         /*.ne00 =*/ ne00,
+         /*.ne01 =*/ ne01,
+@@ -3965,7 +4072,11 @@ int ggml_metal_op_pad(ggml_metal_op_t ctx, int idx) {
+         /*.nb0  =*/ nb0,
+         /*.nb1  =*/ nb1,
+         /*.nb2  =*/ nb2,
+-        /*.nb3  =*/ nb3
++        /*.nb3  =*/ nb3,
++        /*.lp0  =*/ lp0,
++        /*.lp1  =*/ lp1,
++        /*.lp2  =*/ lp2,
++        /*.lp3  =*/ lp3,
+     };
+ 
+     auto pipeline = ggml_metal_library_get_pipeline_pad(lib, op);
+@@ -4028,6 +4139,39 @@ int ggml_metal_op_pad_reflect_1d(ggml_metal_op_t ctx, int idx) {
+     return 1;
+ }
+ 
++int ggml_metal_op_diag_mask_inf(ggml_metal_op_t ctx, int idx) {
++    ggml_tensor * op = ctx->node(idx);
++
++    ggml_metal_library_t lib = ctx->lib;
++    ggml_metal_encoder_t enc = ctx->enc;
++
++    const int32_t ncols = (int32_t) op->src[0]->ne[0];
++    const int32_t nrows = (int32_t) ggml_nrows(op->src[0]);
++    const int32_t rows_per_channel = (int32_t) op->src[0]->ne[1];
++    const int32_t n_past = ((const int32_t *) op->op_params)[0];
++
++    ggml_metal_kargs_diag_mask_inf args = {
++        /*.ncols            =*/ ncols,
++        /*.rows_per_channel =*/ rows_per_channel,
++        /*.n_past           =*/ n_past,
++    };
++
++    auto pipeline = ggml_metal_library_get_pipeline_diag_mask_inf(lib, op);
++
++    const int nth = std::min<int>(ncols, ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
++    const int n_tiles = (ncols + nth - 1) / nth;
++
++    ggml_metal_encoder_set_pipeline(enc, pipeline);
++    ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
++    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1);
++    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         2);
++
++    // grid: (rows, col_tiles, 1); threadgroup: (nth, 1, 1)
++    ggml_metal_encoder_dispatch_threadgroups(enc, nrows, n_tiles, 1, nth, 1, 1);
++
++    return 1;
++}
++
+ int ggml_metal_op_arange(ggml_metal_op_t ctx, int idx) {
+     ggml_tensor * op = ctx->node(idx);
+ 
+diff --git a/src/ggml-metal/ggml-metal-ops.h b/src/ggml-metal/ggml-metal-ops.h
+index 50e3c5c..a3aa05c 100644
+--- a/src/ggml-metal/ggml-metal-ops.h
++++ b/src/ggml-metal/ggml-metal-ops.h
+@@ -81,6 +81,7 @@ int ggml_metal_op_conv_transpose_2d (ggml_metal_op_t ctx, int idx);
+ int ggml_metal_op_upscale           (ggml_metal_op_t ctx, int idx);
+ int ggml_metal_op_pad               (ggml_metal_op_t ctx, int idx);
+ int ggml_metal_op_pad_reflect_1d    (ggml_metal_op_t ctx, int idx);
++int ggml_metal_op_diag_mask_inf     (ggml_metal_op_t ctx, int idx);
+ int ggml_metal_op_arange            (ggml_metal_op_t ctx, int idx);
+ int ggml_metal_op_timestep_embedding(ggml_metal_op_t ctx, int idx);
+ int ggml_metal_op_argmax            (ggml_metal_op_t ctx, int idx);
+diff --git a/src/ggml-metal/ggml-metal.metal b/src/ggml-metal/ggml-metal.metal
+index f67c5cd..006e1b9 100644
+--- a/src/ggml-metal/ggml-metal.metal
++++ b/src/ggml-metal/ggml-metal.metal
+@@ -3300,6 +3300,63 @@ inline float block_q_n_dot_y(device const block_q5_1 * qb_curr, float sumy, thre
+     return d * (acc[0] + acc[1] + acc[2] + acc[3]) + sumy * m;
+ }
+ 
++// These function constants are also declared below for readability next to
++// the kernels that use them, but the helpers here reference them so they
++// must be visible already.
++constant bool FC_mul_mv_has_bias_     [[function_constant(FC_MUL_MV + 2)]];
++constant bool FC_mul_mv_has_residual_ [[function_constant(FC_MUL_MV + 3)]];
++#define FC_mul_mv_has_bias     FC_mul_mv_has_bias_
++#define FC_mul_mv_has_residual FC_mul_mv_has_residual_
++
++// Post-impl bias-and-residual adder used by the Q-variant mul_mv wrappers
++// when fused with either ADD(bias) or ADD(bias) + ADD(residual).  After the
++// impl has written its sums to dst we only need one thread per row to add
++// the extra terms back in.  Bias is a broadcast vector of shape [ne0];
++// residual has the same shape and stride as dst.  Either or both can be
++// disabled via their function constant, in which case the Metal compiler
++// drops the corresponding branch at specialisation time.
++//
++// NOTE: the caller is responsible for selecting which simdgroups invoke
++// this helper.  For kernels where each simdgroup writes to its *own* set
++// of output rows (mul_vec_q_n_f32_impl, where r0 is derived from sgitg)
++// every simdgroup must call this with its own r0.  For kernels where all
++// simdgroups cooperate on the *same* output rows via
++// helper_mv_reduce_and_write (e.g. Q8_0), only sgitg == 0 should call.
++template<short NR0>
++static inline void helper_mv_add_bias(
++        device       char * dst,
++        device const char * bias,
++        device const char * residual,
++        constant ggml_metal_kargs_mul_mv & args,
++        const int r0,
++        const int r1,
++        const int im,
++        ushort tiisg) {
++    if (!FC_mul_mv_has_bias && !FC_mul_mv_has_residual) {
++        return;
++    }
++    if (tiisg != 0) {
++        return;
++    }
++
++    const uint64_t base_off = (uint64_t) im * args.ne0 * args.ne1 + (uint64_t) r1 * args.ne0;
++
++    device       float * dst_f32      = (device       float *) dst + base_off;
++    device const float * bias_f32     = (device const float *) bias;
++    device const float * residual_f32 = (device const float *) residual + base_off;
++
++    for (short row = 0; row < NR0 && r0 + row < args.ne01; ++row) {
++        float v = dst_f32[r0 + row];
++        if (FC_mul_mv_has_bias) {
++            v += bias_f32[r0 + row];
++        }
++        if (FC_mul_mv_has_residual) {
++            v += residual_f32[r0 + row];
++        }
++        dst_f32[r0 + row] = v;
++    }
++}
++
+ template<short NR0>
+ static inline void helper_mv_reduce_and_write(
+         device float * dst_f32,
+@@ -3342,8 +3399,11 @@ static inline void helper_mv_reduce_and_write(
+     }
+ }
+ 
+-constant short FC_mul_mv_nsg   [[function_constant(FC_MUL_MV + 0)]];
+-constant short FC_mul_mv_nxpsg [[function_constant(FC_MUL_MV + 1)]];
++constant short FC_mul_mv_nsg      [[function_constant(FC_MUL_MV + 0)]];
++constant short FC_mul_mv_nxpsg    [[function_constant(FC_MUL_MV + 1)]];
++// FC_mul_mv_has_bias (FC_MUL_MV + 2) is declared above as FC_mul_mv_has_bias_
++// so helper_mv_reduce_and_write can reference it before the kernel wrappers
++// down here; the macro at that declaration exposes the canonical name.
+ 
+ template<typename block_q_type, short NR0, typename args_t>
+ void mul_vec_q_n_f32_impl(
+@@ -3517,11 +3577,20 @@ kernel void kernel_mul_mv_q4_0_f32(
+         device const char * src0,
+         device const char * src1,
+         device       char * dst,
++        device const char * bias,
++        device const char * residual,
+         threadgroup  char * shmem [[threadgroup(0)]],
+         uint3  tgpig[[threadgroup_position_in_grid]],
+         ushort tiisg[[thread_index_in_simdgroup]],
+         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
+     mul_vec_q_n_f32_impl<block_q4_0, N_R0_Q4_0, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
++    // Each simdgroup in this threadgroup writes its own NR0 output rows,
++    // so every sgitg has to call the helper for its own r0.
++    helper_mv_add_bias<N_R0_Q4_0>(dst, bias, residual, args,
++                                  /*r0=*/ ((int) tgpig.x * FC_mul_mv_nsg + (int) sgitg) * N_R0_Q4_0,
++                                  /*r1=*/ (int) tgpig.y,
++                                  /*im=*/ (int) tgpig.z,
++                                  tiisg);
+ }
+ 
+ kernel void kernel_mul_mv_q4_1_f32(
+@@ -3529,11 +3598,18 @@ kernel void kernel_mul_mv_q4_1_f32(
+         device const char * src0,
+         device const char * src1,
+         device       char * dst,
++        device const char * bias,
++        device const char * residual,
+         threadgroup  char * shmem [[threadgroup(0)]],
+         uint3  tgpig[[threadgroup_position_in_grid]],
+         ushort tiisg[[thread_index_in_simdgroup]],
+         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
+      mul_vec_q_n_f32_impl<block_q4_1, N_R0_Q4_1, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
++     helper_mv_add_bias<N_R0_Q4_1>(dst, bias, residual, args,
++                                   /*r0=*/ ((int) tgpig.x * FC_mul_mv_nsg + (int) sgitg) * N_R0_Q4_1,
++                                   /*r1=*/ (int) tgpig.y,
++                                   /*im=*/ (int) tgpig.z,
++                                   tiisg);
+ }
+ 
+ kernel void kernel_mul_mv_q5_0_f32(
+@@ -3541,11 +3617,18 @@ kernel void kernel_mul_mv_q5_0_f32(
+         device const char * src0,
+         device const char * src1,
+         device       char * dst,
++        device const char * bias,
++        device const char * residual,
+         threadgroup  char * shmem [[threadgroup(0)]],
+         uint3  tgpig[[threadgroup_position_in_grid]],
+         ushort tiisg[[thread_index_in_simdgroup]],
+         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
+     mul_vec_q_n_f32_impl<block_q5_0, N_R0_Q5_0, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
++    helper_mv_add_bias<N_R0_Q5_0>(dst, bias, residual, args,
++                                  /*r0=*/ ((int) tgpig.x * FC_mul_mv_nsg + (int) sgitg) * N_R0_Q5_0,
++                                  /*r1=*/ (int) tgpig.y,
++                                  /*im=*/ (int) tgpig.z,
++                                  tiisg);
+ }
+ 
+ kernel void kernel_mul_mv_q5_1_f32(
+@@ -3553,11 +3636,18 @@ kernel void kernel_mul_mv_q5_1_f32(
+         device const char * src0,
+         device const char * src1,
+         device       char * dst,
++        device const char * bias,
++        device const char * residual,
+         threadgroup  char * shmem [[threadgroup(0)]],
+         uint3  tgpig[[threadgroup_position_in_grid]],
+         ushort tiisg[[thread_index_in_simdgroup]],
+         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
+     mul_vec_q_n_f32_impl<block_q5_1, N_R0_Q5_1, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
++    helper_mv_add_bias<N_R0_Q5_1>(dst, bias, residual, args,
++                                  /*r0=*/ ((int) tgpig.x * FC_mul_mv_nsg + (int) sgitg) * N_R0_Q5_1,
++                                  /*r1=*/ (int) tgpig.y,
++                                  /*im=*/ (int) tgpig.z,
++                                  tiisg);
+ }
+ 
+ template<short NR0, typename args_t>
+@@ -3640,11 +3730,23 @@ kernel void kernel_mul_mv_q8_0_f32(
+         device const char * src0,
+         device const char * src1,
+         device       char * dst,
++        device const char * bias,
++        device const char * residual,
+         threadgroup  char * shmem [[threadgroup(0)]],
+         uint3  tgpig[[threadgroup_position_in_grid]],
+         ushort tiisg[[thread_index_in_simdgroup]],
+         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
+     kernel_mul_mv_q8_0_f32_impl<N_R0_Q8_0, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
++    // Q8_0 uses helper_mv_reduce_and_write: all simdgroups cooperate on the
++    // *same* output rows, so gate the bias add to sgitg == 0 to avoid
++    // double-counting.  r0 derives from tgpig.x alone.
++    if (sgitg == 0) {
++        helper_mv_add_bias<N_R0_Q8_0>(dst, bias, residual, args,
++                                      /*r0=*/ (int) tgpig.x * N_R0_Q8_0,
++                                      /*r1=*/ (int) tgpig.y,
++                                      /*im=*/ (int) tgpig.z,
++                                      tiisg);
++    }
+ }
+ 
+ // mat-vec kernel processing in chunks of float4
+@@ -4830,33 +4932,63 @@ typedef void (conv_transpose_1d_t)(
+         device const float * src1,
+         device        char * dst,
+         uint3   tgpig[[threadgroup_position_in_grid]],
+-        uint3    tgpg[[threadgroups_per_grid]]);
++        uint3    tgpg[[threadgroups_per_grid]],
++        uint3   tpitg[[thread_position_in_threadgroup]],
++        uint3     ntg[[threads_per_threadgroup]]);
+ 
+ template <typename T>
+ kernel void kernel_conv_transpose_1d(
+         constant ggml_metal_kargs_conv_transpose_1d & args,
+-        device const     T * src0,
+-        device const float * src1,
+-        device        char * dst,
+-        uint3   tgpig[[threadgroup_position_in_grid]],
+-        uint3   tgpg[[threadgroups_per_grid]]) {
+-
+-    float v = 0.0f;
++        device const     T * src0,    // kernel: [K, OC, IC] row-major
++        device const float * src1,    // input:  [IL, IC] row-major
++        device        char * dst,     // output: [OL, OC]
++        uint3 tgpig[[threadgroup_position_in_grid]],
++        uint3  tgpg[[threadgroups_per_grid]],
++        uint3 tpitg[[thread_position_in_threadgroup]],
++        uint3   ntg[[threads_per_threadgroup]]) {
+ 
+-    for (int64_t c = 0; c < args.IC; c++) {
+-        const int32_t kernel_offset = c * tgpg[1] * args.K + args.K * tgpig[1];
+-        const int32_t input_offset = c * args.IL;
++    // grid: (OL, OC, 1), threadgroup: (SIMDGROUP_WIDTH=32, 1, 1)
++    //   each threadgroup computes one output pixel; threads in the simdgroup
++    //   parallelise the reduction across input channels (IC).
++    const int ol  = tgpig.x;
++    const int oc  = tgpig.y;
++    const int OC  = tgpg.y;
++    const int tid = tpitg.x;
++    const int nth = ntg.x;
++
++    const int K  = args.K;
++    const int IL = args.IL;
++    const int IC = args.IC;
++    const int s0 = args.s0;
++
++    // Transposed conv: out[ol, oc] = sum over (i, ic, ki) of
++    //   kernel[ki, oc, ic] * input[i, ic]    where i*s0 + ki == ol
++    // Narrow (i, ki) to the finite set of contributing pairs instead of
++    // the naive O(IC * IL) scan.  For fixed ol the valid i range is:
++    //   max(0, ceil((ol - K + 1)/s0)) <= i <= min(IL-1, ol/s0)
++    int i_start = (ol - K + 1 + s0 - 1) / s0;
++    if (i_start < 0) i_start = 0;
++    int i_end = ol / s0;
++    if (i_end > IL - 1) i_end = IL - 1;
+ 
+-        for (int64_t i = 0; i < args.IL; i++) {
+-            if (tgpig[0] >= i * args.s0 && tgpig[0] < i * args.s0 + args.K) {
+-                v += src0[kernel_offset + tgpig[0] - i * args.s0] * src1[input_offset + i];
+-            }
++    float v = 0.0f;
++    // Each thread handles a strided slice of IC.
++    for (int ic = tid; ic < IC; ic += nth) {
++        const int kernel_base = (ic * OC + oc) * K;
++        const int input_base  = ic * IL;
++        for (int i = i_start; i <= i_end; ++i) {
++            const int ki = ol - i * s0;
++            v += float(src0[kernel_base + ki]) * src1[input_base + i];
+         }
+     }
+ 
+-    device float * dst_ptr = (device float *) (dst + tgpig[0] * args.nb0 + tgpig[1] * args.nb1);
++    // Reduce across the 32-thread simdgroup (threadgroup == 1 simdgroup).
++    v = simd_sum(v);
+ 
+-    dst_ptr[0] = v;
++    if (tid == 0) {
++        device float * dst_ptr = (device float *) (dst + ol * args.nb0 + oc * args.nb1);
++        dst_ptr[0] = v;
++    }
+ }
+ 
+ template [[host_name("kernel_conv_transpose_1d_f32_f32")]]
+@@ -4866,7 +4998,9 @@ kernel void kernel_conv_transpose_1d<float>(
+     device const float * src1,
+     device        char * dst,
+     uint3   tgpig[[threadgroup_position_in_grid]],
+-    uint3    tgpg[[threadgroups_per_grid]]);
++    uint3    tgpg[[threadgroups_per_grid]],
++    uint3   tpitg[[thread_position_in_threadgroup]],
++    uint3     ntg[[threads_per_threadgroup]]);
+ 
+ template [[host_name("kernel_conv_transpose_1d_f16_f32")]]
+ kernel void kernel_conv_transpose_1d<half>(
+@@ -4875,7 +5009,9 @@ kernel void kernel_conv_transpose_1d<half>(
+     device const float * src1,
+     device        char * dst,
+     uint3   tgpig[[threadgroup_position_in_grid]],
+-    uint3    tgpg[[threadgroups_per_grid]]);
++    uint3    tgpg[[threadgroups_per_grid]],
++    uint3   tpitg[[thread_position_in_threadgroup]],
++    uint3     ntg[[threads_per_threadgroup]]);
+ 
+ 
+ typedef void (conv_transpose_2d_t)(
+@@ -5250,17 +5386,23 @@ kernel void kernel_pad_f32(
+     const int64_t i2 = tgpig.y;
+     const int64_t i1 = tgpig.x;
+ 
+-    const int64_t i03 = i3;
+-    const int64_t i02 = i2;
+-    const int64_t i01 = i1;
++    // map output coord (i1, i2, i3) back to input coord with front offsets
++    const int64_t i03 = i3 - args.lp3;
++    const int64_t i02 = i2 - args.lp2;
++    const int64_t i01 = i1 - args.lp1;
+ 
+-    device const float * src0_ptr = (device const float *) (src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01);
+     device       float * dst_ptr  = (device       float *) (dst  +  i3*args.nb3  +  i2*args.nb2  +  i1*args.nb1);
+ 
+-    if (i1 < args.ne01 && i2 < args.ne02 && i3 < args.ne03) {
++    const bool row_inside = (i01 >= 0 && i01 < args.ne01 &&
++                             i02 >= 0 && i02 < args.ne02 &&
++                             i03 >= 0 && i03 < args.ne03);
++
++    if (row_inside) {
++        device const float * src0_ptr = (device const float *) (src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01);
+         for (int i0 = tpitg.x; i0 < args.ne0; i0 += ntg.x) {
+-            if (i0 < args.ne00) {
+-                dst_ptr[i0] = src0_ptr[i0];
++            const int64_t i00 = i0 - args.lp0;
++            if (i00 >= 0 && i00 < args.ne00) {
++                dst_ptr[i0] = src0_ptr[i00];
+             } else {
+                 dst_ptr[i0] = 0.0f;
+             }
+@@ -5274,6 +5416,37 @@ kernel void kernel_pad_f32(
+     }
+ }
+ 
++kernel void kernel_diag_mask_inf_f32(
++    constant   ggml_metal_kargs_diag_mask_inf & args,
++    device  const float * src,
++    device        float * dst,
++    uint3 tgpig[[threadgroup_position_in_grid]],
++    uint3 tpitg[[thread_position_in_threadgroup]],
++    uint3   ntg[[threads_per_threadgroup]]) {
++
++    // Grid layout:
++    //   tgpig.x = row index (0..nrows)
++    //   tgpig.y = tile index across columns
++    //   tpitg.x = column within tile (0..ntg.x)
++
++    const int row = tgpig.x;
++    const int col_base = tgpig.y * ntg.x;
++    const int col = col_base + tpitg.x;
++
++    if (col >= args.ncols) {
++        return;
++    }
++
++    const int i = row * args.ncols + col;
++    const int row_in_channel = row % args.rows_per_channel;
++
++    // Use finite sentinel so subsequent soft_max produces proper zeros
++    // (matches the CUDA implementation).
++    dst[i] = col > args.n_past + row_in_channel
++                ? (src[i] - FLT_MAX)
++                : src[i];
++}
++
+ kernel void kernel_pad_reflect_1d_f32(
+     constant   ggml_metal_kargs_pad_reflect_1d & args,
+     device  const char * src0,
