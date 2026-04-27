@@ -8648,6 +8648,23 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                                 use_id, 16, 8, b, with_bias, with_gate));
                             test_cases.emplace_back(new test_mul_mat_vec_fusion(type, glu_op, 1, 32, 256,
                                 use_id, 16, 8, b, with_bias, with_gate, {1, 1}));
+                            // Larger / decoder-realistic shapes — exercise the
+                            // mul_mat_vec + add(bias) + GLU + add(residual) fusion
+                            // path at scales typical of autoregressive transformer
+                            // FFN blocks (m=1, k>=1024, n in [1024, 3072]).  These
+                            // pass on backends that fuse only mul_mat+add and run
+                            // the residual ADD separately (current ggml-cuda) and
+                            // also on backends that fuse all three (ggml-vulkan
+                            // since MUL_MAT_ADD_ADD shaders, ggml-cuda after this
+                            // PR).  No batch dim variation here — that adds a
+                            // 2-3x test-suite runtime for shapes already covered
+                            // by the {4,2}/{1,1} sweep above.
+                            if (!use_id) {
+                                test_cases.emplace_back(new test_mul_mat_vec_fusion(type, glu_op, 1, 1024, 1024,
+                                    false, 1, 1, false, with_bias, with_gate, {1, 1}));
+                                test_cases.emplace_back(new test_mul_mat_vec_fusion(type, glu_op, 1, 3072, 1024,
+                                    false, 1, 1, false, with_bias, with_gate, {1, 1}));
+                            }
                         }
                     }
                 }
