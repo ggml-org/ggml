@@ -1194,7 +1194,12 @@ struct ggml_cuda_graph {
 
     bool is_enabled() const {
         static const bool disable_cuda_graphs_due_to_env = (getenv("GGML_CUDA_DISABLE_GRAPHS") != nullptr);
-        return !(disable_due_to_gpu_arch || disable_cuda_graphs_due_to_env);
+        // Disable graphs when the per-op perf logger is on: graph capture
+        // would either hide individual-op timings inside cudaGraphLaunch
+        // or re-record over still-pending events on subsequent launches.
+        // See ggml-cuda.cu's ggml_cuda_perf_logger comment for context.
+        static const bool disable_cuda_graphs_due_to_perf_logger = (getenv("GGML_CUDA_PERF_LOGGER") != nullptr);
+        return !(disable_due_to_gpu_arch || disable_cuda_graphs_due_to_env || disable_cuda_graphs_due_to_perf_logger);
     }
 #endif
 };
