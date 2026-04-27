@@ -81,9 +81,263 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 static_assert(sizeof(half) == sizeof(ggml_fp16_t), "wrong fp16 size");
+
+// =============================================================================
+// Per-op GPU timing logger (mirrors ggml-vulkan's GGML_VK_PERF_LOGGER=1).
+//
+// Enabled by setting GGML_CUDA_PERF_LOGGER=1.  Prints aggregate per-op GPU
+// time + dispatch count after every ggml_backend_cuda_graph_compute() call.
+// Output format intentionally matches ggml-vulkan's
+// "----------------\nVulkan Timings:" so existing grep / awk one-liners work
+// for both backends.
+//
+// Implementation:
+//   - Uses cudaEventRecord pairs around each per-op dispatch; one timing
+//     event slot per dispatched op, ~3 µs of overhead per op.
+//   - cudaStreamSynchronize is forced at the end of each compute_graph call
+//     so elapsed times are readable before any subsequent re-record.
+//   - When the env var is set, CUDA Graphs are disabled (graphs would
+//     either re-record over still-pending events on subsequent launches,
+//     or hide per-op timing inside cudaGraphLaunch).
+//
+// Aggregation key encodes op + dtype + shape so repeated calls at the same
+// shape are grouped (matching Vulkan's vk_perf_logger behaviour).
+//
+// Thread safety: ggml-cuda's compute path is single-threaded per context;
+// the logger has no internal locking and assumes the same.
+// =============================================================================
+
+static const bool ggml_cuda_perf_logger_enabled =
+    (getenv("GGML_CUDA_PERF_LOGGER") != nullptr);
+
+class ggml_cuda_perf_logger {
+public:
+    ggml_cuda_perf_logger() = default;
+
+    ~ggml_cuda_perf_logger() {
+        // Flush any pending data — but DO NOT destroy events here.
+        //
+        // This is a Meyers-singleton; its destructor runs at static
+        // destruction time, AFTER main() returns and (often) after the
+        // CUDA runtime's own static destructors have run.  Calling
+        // cudaEventDestroy on a torn-down driver can crash the process
+        // on exit.  Letting the OS reclaim the events is safe — this
+        // logger is opt-in via env var, the leaked memory is process-
+        // lifetime regardless, and the event pool is bounded.  If a
+        // long-running daemon ever wants to reset the logger mid-run,
+        // expose an explicit reset() that's called while CUDA is still
+        // alive.
+        if (next_slot > 0 || !agg.empty()) {
+            print_and_clear();
+        }
+    }
+
+    // RAII helper: records the start event on construction; the consumer
+    // sets the resolved label via set_label() (after the dispatch picks
+    // a fusion / fallback branch); destruction records the end event.
+    class scope {
+    public:
+        scope(ggml_cuda_perf_logger * l, const ggml_tensor * n, cudaStream_t s)
+            : logger_(l), stream_(s), node_(n) {
+            slot_ = logger_ ? logger_->begin(stream_) : -1;
+        }
+        ~scope() {
+            if (logger_ && slot_ >= 0) {
+                logger_->end(stream_, slot_, node_, fusion_label_, n_fused_);
+            }
+        }
+        // Call this from inside the dispatch site to override the default
+        // per-op label with a fusion-specific one, e.g.
+        // "RMS_NORM+MUL+ADD" + n=3.
+        void set_label(const char * label, int n_fused = 1) {
+            fusion_label_ = label;
+            n_fused_      = n_fused;
+        }
+    private:
+        ggml_cuda_perf_logger * logger_ = nullptr;
+        cudaStream_t stream_ = nullptr;
+        const ggml_tensor * node_ = nullptr;
+        const char * fusion_label_ = nullptr;
+        int n_fused_ = 1;
+        int slot_ = -1;
+    };
+
+    // Force a synchronize+flush; called at the end of every
+    // ggml_backend_cuda_graph_compute when the env var is set.
+    void flush_and_print(cudaStream_t stream) {
+        if (next_slot == 0) return;
+        // Wait for all recorded events to fire (essential before
+        // cudaEventElapsedTime, and before we re-use the same slots).
+        (void)cudaStreamSynchronize(stream);
+        for (int i = 0; i < next_slot; ++i) {
+            // Skip slots where event creation or recording failed.
+            if (!ev_starts[i] || !ev_ends[i]) continue;
+            float ms = 0.0f;
+            cudaError_t st = cudaEventElapsedTime(&ms, ev_starts[i], ev_ends[i]);
+            if (st != cudaSuccess) {
+                continue;
+            }
+            const uint64_t ns = (uint64_t)(ms * 1e6);
+            entry & e = agg[ev_names[i]];
+            e.total_ns += ns;
+            e.count    += 1;
+        }
+        next_slot = 0;
+        print_and_clear();
+    }
+
+private:
+    struct entry {
+        uint64_t total_ns = 0;
+        uint64_t count    = 0;
+    };
+
+    int begin(cudaStream_t stream) {
+        ensure_capacity(next_slot + 1);
+        // Defensive: if cudaEventCreate failed earlier (e.g. OOM),
+        // ev_starts[slot] is the zero-init default — recording on that
+        // would error at runtime.  Skip the slot in that case;
+        // flush_and_print() already silently drops slots whose
+        // cudaEventElapsedTime call returns an error, so this composes
+        // cleanly.
+        if (ev_starts[next_slot] && ev_ends[next_slot]) {
+            cudaEventRecord(ev_starts[next_slot], stream);
+        }
+        return next_slot;
+    }
+
+    void end(cudaStream_t stream, int slot, const ggml_tensor * node,
+             const char * fusion_label, int n_fused) {
+        if (ev_starts[slot] && ev_ends[slot]) {
+            cudaEventRecord(ev_ends[slot], stream);
+        }
+        ev_names[slot] = make_label(node, fusion_label, n_fused);
+        next_slot = slot + 1;
+    }
+
+    void ensure_capacity(int needed) {
+        if ((int)ev_starts.size() >= needed) return;
+        const int target = std::max(needed, (int)ev_starts.size() * 2);
+        const int prev   = (int)ev_starts.size();
+        ev_starts.resize(target, nullptr);
+        ev_ends.resize(target, nullptr);
+        ev_names.resize(target);
+        for (int i = prev; i < target; ++i) {
+            // If create fails (e.g. OOM under load), leave the slot null
+            // and skip recording on it; flush_and_print() tolerates
+            // failed elapsed-time queries.  Don't abort — this is opt-in
+            // diagnostic code, not on the hot path.
+            if (cudaEventCreate(&ev_starts[i]) != cudaSuccess) {
+                ev_starts[i] = nullptr;
+            }
+            if (cudaEventCreate(&ev_ends[i]) != cudaSuccess) {
+                ev_ends[i] = nullptr;
+            }
+        }
+    }
+
+    static std::string make_label(const ggml_tensor * node,
+                                  const char * fusion_label,
+                                  int n_fused) {
+        std::string s;
+        if (fusion_label) {
+            s = fusion_label;
+            s += " (";
+            s += std::to_string(n_fused);
+            s += ") ";
+        }
+        if (!node) {
+            s += "<null>";
+            return s;
+        }
+        if (node->op == GGML_OP_UNARY) {
+            s += ggml_unary_op_name(ggml_get_unary_op(node));
+        } else {
+            s += ggml_op_name(node->op);
+        }
+        // Append dtype + shape.  Mirrors ggml-vulkan's vk_perf_logger
+        // encoding where possible (so cross-backend diffs of perf tables
+        // stay aligned).
+        if (node->op == GGML_OP_MUL_MAT || node->op == GGML_OP_MUL_MAT_ID) {
+            const int64_t m = node->ne[0];
+            const int64_t n = node->ne[1];
+            const int64_t k = node->src[1] ? node->src[1]->ne[0] : 0;
+            const int64_t batch = node->ne[2] * node->ne[3];
+            // ggml-vulkan adds "_VEC" suffix when n is small; do the same
+            // for grep parity.  16 is the threshold ggml-vulkan uses by
+            // default for the small-N matmul-vec path.
+            if (n <= 16) {
+                s += "_VEC";
+            }
+            s += " ";
+            if (node->src[0]) s += ggml_type_name(node->src[0]->type);
+            s += " m=" + std::to_string(m);
+            s += " n=" + std::to_string(n);
+            s += " k=" + std::to_string(k);
+            if (batch > 1) s += " batch=" + std::to_string(batch);
+        } else {
+            s += " (";
+            s += std::to_string(node->ne[0]);
+            for (int d = 1; d < GGML_MAX_DIMS; ++d) {
+                s += ",";
+                s += std::to_string(node->ne[d]);
+            }
+            s += ")";
+        }
+        return s;
+    }
+
+    // Print the current frame's aggregated timings then clear the
+    // accumulator.  Each ggml_backend_cuda_graph_compute call therefore
+    // produces a self-contained "CUDA Timings:" block (matching how
+    // ggml-vulkan's vk_perf_logger::print_timings clears `timings` and
+    // `flops` after every print).  Cross-call cumulation isn't useful:
+    // mixing prompt-phase (large n) and step-phase (n=1) op aggregates
+    // would produce confusing tables.
+    void print_and_clear() {
+        if (agg.empty()) return;
+        std::vector<std::pair<std::string, entry>> rows(agg.begin(), agg.end());
+        std::sort(rows.begin(), rows.end(),
+                  [](auto & a, auto & b){ return a.second.total_ns > b.second.total_ns; });
+        std::fprintf(stderr, "----------------\nCUDA Timings:\n");
+        uint64_t total_all = 0;
+        for (const auto & [name, e] : rows) {
+            const double avg_us = e.count ? (double)e.total_ns / (double)e.count / 1000.0 : 0.0;
+            std::fprintf(stderr, "%s: %llu x %.3f us = %.3f us\n",
+                         name.c_str(),
+                         (unsigned long long)e.count,
+                         avg_us,
+                         (double)e.total_ns / 1000.0);
+            total_all += e.total_ns;
+        }
+        std::fprintf(stderr, "Total time: %.3f us.\n", (double)total_all / 1000.0);
+        agg.clear();
+    }
+
+    std::unordered_map<std::string, entry> agg;
+
+    // Per-frame event pool.  Resets next_slot=0 at every flush.
+    std::vector<cudaEvent_t> ev_starts;
+    std::vector<cudaEvent_t> ev_ends;
+    std::vector<std::string> ev_names;
+    int next_slot = 0;
+};
+
+// Single process-wide instance.  Constructed lazily on first reference
+// (Meyers-singleton) so we never pay event-pool setup cost when the env
+// var isn't set.  Storage is a function-local static; lifetime is "until
+// process exit".
+static ggml_cuda_perf_logger & g_cuda_perf_logger_get() {
+    static ggml_cuda_perf_logger inst;
+    return inst;
+}
+// Convenience reference that the dispatch loop uses.  Cheap because
+// g_cuda_perf_logger_get() is a single-load function-local static.
+#define g_cuda_perf_logger (g_cuda_perf_logger_get())
 
 [[noreturn]]
 void ggml_cuda_error(const char * stmt, const char * func, const char * file, int line, const char * msg) {
@@ -3762,6 +4016,19 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
                     continue;
                 }
 
+                // -----------------------------------------------------
+                // Per-op timing scope (no-op unless GGML_CUDA_PERF_LOGGER=1).
+                // Records cudaEventRecord(start) here; the matching end
+                // event is recorded by ~scope() at the bottom of the
+                // current dispatch — including before any `continue` taken
+                // by the fusion fast-paths below.  Fusion-specific labels
+                // (e.g. "MUL_MAT+ADD") could be set inline by .set_label()
+                // next to each fused dispatch site if desired.
+                // -----------------------------------------------------
+                ggml_cuda_perf_logger * perf_logger_ptr =
+                    ggml_cuda_perf_logger_enabled ? &g_cuda_perf_logger : nullptr;
+                ggml_cuda_perf_logger::scope perf_scope(perf_logger_ptr, node, cuda_ctx->stream());
+
                 // start of fusion operations
                 static bool disable_fusion = (getenv("GGML_CUDA_DISABLE_FUSION") != nullptr);
                 if (!disable_fusion) {
@@ -4010,6 +4277,98 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
                         continue;
                     }
 
+                    // 3-op fusion: MUL_MAT + ADD(bias) + ADD(residual)
+                    //
+                    // Mirrors ggml-vulkan's MUL_MAT_ADD_ADD shader. The
+                    // pattern is `((mat * y) + bias) + residual`, common in
+                    // transformer attention-output and FFN-output blocks
+                    // where the projection is followed by a bias add and a
+                    // residual connection. Without the 3-op fusion, CUDA
+                    // runs three separate kernels per such block; folding
+                    // the residual ADD into the matmul-vec writeback saves
+                    // the launch overhead of one stand-alone GGML_OP_ADD
+                    // per residual.
+                    //
+                    // Placed above the 2-op {MUL_MAT, ADD} fusion below so
+                    // the greedy match prefers the larger fusion when both
+                    // apply (ggml_can_fuse already enforces that the
+                    // intermediate node has no other consumers).
+                    //
+                    // Only MUL_MAT (not MUL_MAT_ID) is handled — the
+                    // residual ADD pattern doesn't apply to MoE expert
+                    // routing in any model the author has seen, and the
+                    // host-side detection logic for ADD_ID would need a
+                    // different path (residual would be a tensor index
+                    // rather than a direct ADD source).
+                    fused_mul_mat_vec = false;
+                    fused_node_count = 0;
+                    if (ggml_can_fuse(cgraph, i, { GGML_OP_MUL_MAT, GGML_OP_ADD, GGML_OP_ADD })) {
+                        ggml_tensor * mm_node       = cgraph->nodes[i];
+                        ggml_tensor * bias_node     = cgraph->nodes[i + 1];
+                        ggml_tensor * residual_node = cgraph->nodes[i + 2];
+
+                        // bias_node consumes (mm_node, bias_tensor) in some
+                        // order; pick the one that's not mm_node.
+                        ggml_tensor * bias_tensor = nullptr;
+                        if (bias_node->src[0] == mm_node) {
+                            bias_tensor = bias_node->src[1];
+                        } else if (bias_node->src[1] == mm_node) {
+                            bias_tensor = bias_node->src[0];
+                        }
+                        // residual_node must consume (bias_node, residual_tensor).
+                        ggml_tensor * residual_tensor = nullptr;
+                        if (bias_tensor) {
+                            if (residual_node->src[0] == bias_node) {
+                                residual_tensor = residual_node->src[1];
+                            } else if (residual_node->src[1] == bias_node) {
+                                residual_tensor = residual_node->src[0];
+                            }
+                        }
+
+                        // No broadcasting on either ADD — same constraint
+                        // as the 2-op fusion below.  This skips prompt-
+                        // phase patterns where bias is [N] and mm output
+                        // is [N, T]; those fall through to plain dispatch.
+                        const bool no_bias_broadcast =
+                            bias_tensor &&
+                            ggml_are_same_shape(bias_node->src[0], bias_node->src[1]);
+                        const bool no_residual_broadcast =
+                            residual_tensor &&
+                            ggml_are_same_shape(residual_node->src[0], residual_node->src[1]);
+
+                        if (bias_tensor && residual_tensor && no_bias_broadcast && no_residual_broadcast) {
+                            const ggml_tensor * src0 = mm_node->src[0];
+                            const ggml_tensor * src1 = mm_node->src[1];
+                            const ggml_tensor * ids  = mm_node->src[2];
+
+                            // Use the 3-op fused kernel only if the 2-op
+                            // fusion path would have been chosen anyway
+                            // (matmul-vec regime, n=1 dst, non-Pascal
+                            // arch).  Larger-N matmul falls through.
+                            if (ggml_cuda_should_fuse_mul_mat_vec_q(mm_node)) {
+                                ggml_cuda_mm_fusion_args_host fusion_data{};
+                                fusion_data.x_bias     = bias_tensor;
+                                fusion_data.x_residual = residual_tensor;
+
+                                ggml_cuda_mul_mat_vec_q(*cuda_ctx, src0, src1, ids, residual_node, &fusion_data);
+                                fused_mul_mat_vec = true;
+                                fused_node_count  = 3;
+                            } else if (ggml_cuda_should_fuse_mul_mat_vec_f(mm_node)) {
+                                ggml_cuda_mm_fusion_args_host fusion_data{};
+                                fusion_data.x_bias     = bias_tensor;
+                                fusion_data.x_residual = residual_tensor;
+                                ggml_cuda_mul_mat_vec_f(*cuda_ctx, src0, src1, ids, residual_node, &fusion_data);
+                                fused_mul_mat_vec = true;
+                                fused_node_count  = 3;
+                            }
+                        }
+                    }
+
+                    if (fused_mul_mat_vec) {
+                        i += fused_node_count - 1;
+                        continue;
+                    }
+
                     fused_mul_mat_vec = false;
                     fused_node_count = 0;
 
@@ -4240,6 +4599,14 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend, 
     }
 
     ggml_cuda_graph_evaluate_and_capture(cuda_ctx, cgraph, use_cuda_graph, cuda_graph_update_required, graph_key);
+
+    // Flush per-op timing data after each compute_graph call when the
+    // GGML_CUDA_PERF_LOGGER env var is set.  Mirrors ggml-vulkan's
+    // post-compute flush.  No-op when env var is unset (next_slot==0
+    // and agg.empty() short-circuit inside flush_and_print).
+    if (ggml_cuda_perf_logger_enabled) {
+        g_cuda_perf_logger.flush_and_print(cuda_ctx->stream());
+    }
 
     return GGML_STATUS_SUCCESS;
 }

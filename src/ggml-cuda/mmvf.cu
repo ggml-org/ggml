@@ -50,15 +50,18 @@ static __global__ void mul_mat_vec_f(
     bool use_gate = false;
     bool use_bias = false;
     bool use_gate_bias = false;
+    bool use_residual = false;
     ggml_glu_op glu_op = ggml_glu_op::GGML_GLU_OP_SWIGLU;
     const T * gate_x = nullptr;
     const float * x_bias = nullptr;
     const float * gate_bias = nullptr;
+    const float * x_residual = nullptr;
 
     if constexpr (has_fusion) {
         use_gate = fusion.gate != nullptr;
         use_bias = fusion.x_bias != nullptr;
         use_gate_bias = fusion.gate_bias != nullptr;
+        use_residual = fusion.x_residual != nullptr;
         glu_op = fusion.glu_op;
 
         if (use_gate) {
@@ -72,6 +75,13 @@ static __global__ void mul_mat_vec_f(
             use_gate_bias = use_gate;
         } else {
             use_gate_bias = false;
+        }
+        if (use_residual) {
+            // Residual is added AFTER bias and (if any) GLU — matches the
+            // chatterbox graph shape `((mm * y) + bias) + residual` and
+            // ggml-vulkan's MUL_MAT_ADD_ADD shader.  Same shape rules as
+            // x_bias (must match dst, no broadcasting).
+            x_residual = static_cast<const float *>(fusion.x_residual);
         }
     }
 
@@ -87,6 +97,13 @@ static __global__ void mul_mat_vec_f(
         }
         if (use_gate_bias) {
             gate_bias += int64_t(sample_dst)*stride_sample_dst + channel_bias*stride_channel_dst;
+        }
+        if (use_residual) {
+            // Residual must be offset into the same (sample, channel) slice
+            // as the bias-add output it gets summed with.  Same shape rules
+            // as x_bias (no broadcasting; host-side fusion-detection in
+            // ggml_backend_cuda_graph_compute enforces this).
+            x_residual += int64_t(sample_dst)*stride_sample_dst + channel_bias*stride_channel_dst;
         }
     }
 
@@ -363,6 +380,10 @@ static __global__ void mul_mat_vec_f(
                 default:
                     break;
             }
+        }
+        // Residual is added last — see x_residual comment near declaration.
+        if (use_residual) {
+            value += x_residual[tid*stride_col_dst + row];
         }
     }
 
@@ -666,6 +687,14 @@ void ggml_cuda_mul_mat_vec_f(ggml_backend_cuda_context & ctx, const ggml_tensor 
             GGML_ASSERT(fusion->gate_bias->ne[0] == dst->ne[0]);
             GGML_ASSERT(!ids || fusion->gate_bias->ne[1] == src0->ne[2]);
             fusion_local.gate_bias = fusion->gate_bias->data;
+        }
+        if (fusion->x_residual) {
+            // Same shape rules as x_bias — host-side fusion-detection
+            // logic enforces no broadcasting.
+            GGML_ASSERT(fusion->x_residual->type == GGML_TYPE_F32);
+            GGML_ASSERT(fusion->x_residual->ne[0] == dst->ne[0]);
+            GGML_ASSERT(!ids || fusion->x_residual->ne[1] == src0->ne[2]);
+            fusion_local.x_residual = fusion->x_residual->data;
         }
         fusion_local.glu_op = fusion->glu_op;
     }

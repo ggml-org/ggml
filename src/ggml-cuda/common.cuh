@@ -1194,7 +1194,12 @@ struct ggml_cuda_graph {
 
     bool is_enabled() const {
         static const bool disable_cuda_graphs_due_to_env = (getenv("GGML_CUDA_DISABLE_GRAPHS") != nullptr);
-        return !(disable_due_to_gpu_arch || disable_cuda_graphs_due_to_env);
+        // Disable graphs when the per-op perf logger is on: graph capture
+        // would either hide individual-op timings inside cudaGraphLaunch
+        // or re-record over still-pending events on subsequent launches.
+        // See ggml-cuda.cu's ggml_cuda_perf_logger comment for context.
+        static const bool disable_cuda_graphs_due_to_perf_logger = (getenv("GGML_CUDA_PERF_LOGGER") != nullptr);
+        return !(disable_due_to_gpu_arch || disable_cuda_graphs_due_to_env || disable_cuda_graphs_due_to_perf_logger);
     }
 #endif
 };
@@ -1467,11 +1472,23 @@ struct ggml_cuda_mm_fusion_args_host {
     const ggml_tensor * x_bias = nullptr;
     const ggml_tensor * gate = nullptr;
     const ggml_tensor * gate_bias = nullptr;
+    // Residual tensor added to the matmul output AFTER bias and (if any) gate.
+    // When both x_bias and x_residual are set the kernel performs
+    //     dst = mat * y + bias + residual
+    // in a single dispatch, mirroring ggml-vulkan's MUL_MAT_ADD_ADD shader and
+    // saving the launch overhead of a stand-alone GGML_OP_ADD per residual
+    // connection.  Used by the 3-op MUL_MAT + ADD(bias) + ADD(residual) fusion
+    // detected in ggml_backend_cuda_graph_compute.  Must have ne[0] ==
+    // dst->ne[0] and the same shape as the bias-add output (no broadcasting).
+    // Set to nullptr for normal 2-op MUL_MAT + ADD(bias) fusion or unfused
+    // dispatch.
+    const ggml_tensor * x_residual = nullptr;
     ggml_glu_op glu_op;
 };
 struct ggml_cuda_mm_fusion_args_device {
     const void * x_bias = nullptr;
     const void * gate = nullptr;
     const void * gate_bias = nullptr;
+    const void * x_residual = nullptr;  // see _host counterpart for semantics
     ggml_glu_op glu_op;
 };

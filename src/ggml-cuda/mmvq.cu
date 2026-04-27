@@ -429,24 +429,29 @@ static __global__ void mul_mat_vec_q(
     bool use_gate = false;
     bool use_bias = false;
     bool use_gate_bias = false;
+    bool use_residual = false;
     const void * vgate = nullptr;
     const float * x_bias = nullptr;
     const float * gate_bias = nullptr;
+    const float * x_residual = nullptr;
     ggml_glu_op active_glu;
 
     if constexpr (has_fusion) {
-        use_gate      = fusion.gate      != nullptr;
-        use_bias      = fusion.x_bias    != nullptr;
-        use_gate_bias = fusion.gate_bias != nullptr && use_gate;
+        use_gate      = fusion.gate       != nullptr;
+        use_bias      = fusion.x_bias     != nullptr;
+        use_gate_bias = fusion.gate_bias  != nullptr && use_gate;
+        use_residual  = fusion.x_residual != nullptr;
         vgate         = fusion.gate;
         x_bias        = (const float *) fusion.x_bias;
         gate_bias     = (const float *) fusion.gate_bias;
+        x_residual    = (const float *) fusion.x_residual;
         active_glu    = fusion.glu_op;
     }
 
 
-    float x_biases[ncols_dst]    = { 0.0f };
-    float gate_biases[ncols_dst] = { 0.0f };
+    float x_biases[ncols_dst]     = { 0.0f };
+    float gate_biases[ncols_dst]  = { 0.0f };
+    float x_residuals[ncols_dst]  = { 0.0f };
     if constexpr (has_fusion) {
         const uint32_t channel_bias = ids ? channel_x : channel_dst;
         if (use_bias) {
@@ -458,6 +463,20 @@ static __global__ void mul_mat_vec_q(
 #pragma unroll
                 for (int j = 0; j < ncols_dst; ++j) {
                     x_biases[j] = x_bias[j * stride_col_dst + threadIdx.x];
+                }
+            }
+        }
+        if (use_residual) {
+            // Residual is added AFTER bias and after the gate's GLU application
+            // (matches ggml-vulkan's MUL_MAT_ADD_ADD shader).  Residual must be
+            // F32 with the same shape as dst — broadcasting is rejected in the
+            // host-side fusion-detection logic before we get here.
+            x_residual = x_residual + sample_dst*stride_sample_dst + channel_bias*stride_channel_dst + row0;
+            if (threadIdx.x < rows_per_cuda_block && threadIdx.y == 0 &&
+                (rows_per_cuda_block == 1 || uint32_t(row0 + threadIdx.x) < stride_col_dst)) {
+#pragma unroll
+                for (int j = 0; j < ncols_dst; ++j) {
+                    x_residuals[j] = x_residual[j * stride_col_dst + threadIdx.x];
                 }
             }
         }
@@ -580,13 +599,20 @@ static __global__ void mul_mat_vec_q(
                             break;
                     }
                 }
+                // Residual is added last — matches the chatterbox graph
+                // shape `((mm * y) + bias) + residual` and Vulkan's
+                // MUL_MAT_ADD_ADD shader execution order.  Skipped when
+                // x_residual was null (use_residual == false).
+                if (use_residual) {
+                    result += x_residuals[j];
+                }
             }
             dst[j*stride_col_dst + threadIdx.x] = result;
         }
     }
 
     if constexpr (!has_fusion) {
-        GGML_UNUSED_VARS(use_gate, use_bias, use_gate_bias, active_glu, gate_bias, x_bias, tmp_gate);
+        GGML_UNUSED_VARS(use_gate, use_bias, use_gate_bias, use_residual, active_glu, gate_bias, x_bias, x_residual, tmp_gate);
     }
 }
 
@@ -1073,6 +1099,16 @@ void ggml_cuda_mul_mat_vec_q(
             GGML_ASSERT(fusion->gate_bias->ne[0] == dst->ne[0]);
             GGML_ASSERT(!ids || fusion->gate_bias->ne[1] == src0->ne[2]);
             fusion_local.gate_bias = fusion->gate_bias->data;
+        }
+        if (fusion->x_residual) {
+            // Residual must be F32 and exactly match the dst tensor in
+            // shape — no broadcasting (the host-side fusion-detection
+            // logic in ggml_backend_cuda_graph_compute already enforces
+            // this).  Mirrors the x_bias asserts above.
+            GGML_ASSERT(fusion->x_residual->type == GGML_TYPE_F32);
+            GGML_ASSERT(fusion->x_residual->ne[0] == dst->ne[0]);
+            GGML_ASSERT(!ids || fusion->x_residual->ne[1] == src0->ne[2]);
+            fusion_local.x_residual = fusion->x_residual->data;
         }
         fusion_local.glu_op = fusion->glu_op;
     }

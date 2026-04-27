@@ -7679,6 +7679,18 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_conv_transpose_1d({3,2,1,1}, {3,1,2,1}, 1, 0, 1));
     test_cases.emplace_back(new test_conv_transpose_1d({2,1,1,1}, {3,1,1,1}, 1, 0, 1));
 
+    // HiFT-vocoder-realistic shapes (exercise the warp-cooperative
+    // CUDA kernel: IC > 32 multi-warp accumulation, kernel-vs-stride
+    // ratios > 1 hitting the inner-loop unroll path).  These cases
+    // pass on both the legacy scalar kernel and the warp-cooperative
+    // variant; they're a regression guard so future kernel changes
+    // get caught at HiFT-realistic scale, not just on tiny shapes.
+    test_cases.emplace_back(new test_conv_transpose_1d({303,  80, 1, 1}, {16, 64,  80, 1}, 8, 0, 1));   // HiFT layer 1
+    test_cases.emplace_back(new test_conv_transpose_1d({150, 128, 1, 1}, {16, 64, 128, 1}, 8, 0, 1));   // HiFT layer 2
+    test_cases.emplace_back(new test_conv_transpose_1d({100,  64, 1, 1}, { 8, 32,  64, 1}, 4, 0, 1));   // HiFT layer 3 (smaller s0)
+    test_cases.emplace_back(new test_conv_transpose_1d({ 50,  32, 1, 1}, { 4, 16,  32, 1}, 2, 0, 1));   // HiFT layer 4 (small)
+    test_cases.emplace_back(new test_conv_transpose_1d({200,  64, 1, 1}, {32, 32,  64, 1}, 8, 0, 1));   // K > s0 (multi-touch)
+
     for (ggml_type kernel_type : {GGML_TYPE_F32, GGML_TYPE_F16}) {
         test_cases.emplace_back(new test_conv_transpose_2d({3, 2, 3, 1}, {2, 2, 1, 3}, 1, kernel_type));
         test_cases.emplace_back(new test_conv_transpose_2d({10, 10, 9, 1}, {3, 3, 1, 9}, 2, kernel_type));
@@ -8636,6 +8648,23 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                                 use_id, 16, 8, b, with_bias, with_gate));
                             test_cases.emplace_back(new test_mul_mat_vec_fusion(type, glu_op, 1, 32, 256,
                                 use_id, 16, 8, b, with_bias, with_gate, {1, 1}));
+                            // Larger / decoder-realistic shapes — exercise the
+                            // mul_mat_vec + add(bias) + GLU + add(residual) fusion
+                            // path at scales typical of autoregressive transformer
+                            // FFN blocks (m=1, k>=1024, n in [1024, 3072]).  These
+                            // pass on backends that fuse only mul_mat+add and run
+                            // the residual ADD separately (current ggml-cuda) and
+                            // also on backends that fuse all three (ggml-vulkan
+                            // since MUL_MAT_ADD_ADD shaders, ggml-cuda after this
+                            // PR).  No batch dim variation here — that adds a
+                            // 2-3x test-suite runtime for shapes already covered
+                            // by the {4,2}/{1,1} sweep above.
+                            if (!use_id) {
+                                test_cases.emplace_back(new test_mul_mat_vec_fusion(type, glu_op, 1, 1024, 1024,
+                                    false, 1, 1, false, with_bias, with_gate, {1, 1}));
+                                test_cases.emplace_back(new test_mul_mat_vec_fusion(type, glu_op, 1, 3072, 1024,
+                                    false, 1, 1, false, with_bias, with_gate, {1, 1}));
+                            }
                         }
                     }
                 }
