@@ -4010,6 +4010,98 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
                         continue;
                     }
 
+                    // 3-op fusion: MUL_MAT + ADD(bias) + ADD(residual)
+                    //
+                    // Mirrors ggml-vulkan's MUL_MAT_ADD_ADD shader. The
+                    // pattern is `((mat * y) + bias) + residual`, common in
+                    // transformer attention-output and FFN-output blocks
+                    // where the projection is followed by a bias add and a
+                    // residual connection. Without the 3-op fusion, CUDA
+                    // runs three separate kernels per such block; folding
+                    // the residual ADD into the matmul-vec writeback saves
+                    // the launch overhead of one stand-alone GGML_OP_ADD
+                    // per residual.
+                    //
+                    // Placed above the 2-op {MUL_MAT, ADD} fusion below so
+                    // the greedy match prefers the larger fusion when both
+                    // apply (ggml_can_fuse already enforces that the
+                    // intermediate node has no other consumers).
+                    //
+                    // Only MUL_MAT (not MUL_MAT_ID) is handled — the
+                    // residual ADD pattern doesn't apply to MoE expert
+                    // routing in any model the author has seen, and the
+                    // host-side detection logic for ADD_ID would need a
+                    // different path (residual would be a tensor index
+                    // rather than a direct ADD source).
+                    fused_mul_mat_vec = false;
+                    fused_node_count = 0;
+                    if (ggml_can_fuse(cgraph, i, { GGML_OP_MUL_MAT, GGML_OP_ADD, GGML_OP_ADD })) {
+                        ggml_tensor * mm_node       = cgraph->nodes[i];
+                        ggml_tensor * bias_node     = cgraph->nodes[i + 1];
+                        ggml_tensor * residual_node = cgraph->nodes[i + 2];
+
+                        // bias_node consumes (mm_node, bias_tensor) in some
+                        // order; pick the one that's not mm_node.
+                        ggml_tensor * bias_tensor = nullptr;
+                        if (bias_node->src[0] == mm_node) {
+                            bias_tensor = bias_node->src[1];
+                        } else if (bias_node->src[1] == mm_node) {
+                            bias_tensor = bias_node->src[0];
+                        }
+                        // residual_node must consume (bias_node, residual_tensor).
+                        ggml_tensor * residual_tensor = nullptr;
+                        if (bias_tensor) {
+                            if (residual_node->src[0] == bias_node) {
+                                residual_tensor = residual_node->src[1];
+                            } else if (residual_node->src[1] == bias_node) {
+                                residual_tensor = residual_node->src[0];
+                            }
+                        }
+
+                        // No broadcasting on either ADD — same constraint
+                        // as the 2-op fusion below.  This skips prompt-
+                        // phase patterns where bias is [N] and mm output
+                        // is [N, T]; those fall through to plain dispatch.
+                        const bool no_bias_broadcast =
+                            bias_tensor &&
+                            ggml_are_same_shape(bias_node->src[0], bias_node->src[1]);
+                        const bool no_residual_broadcast =
+                            residual_tensor &&
+                            ggml_are_same_shape(residual_node->src[0], residual_node->src[1]);
+
+                        if (bias_tensor && residual_tensor && no_bias_broadcast && no_residual_broadcast) {
+                            const ggml_tensor * src0 = mm_node->src[0];
+                            const ggml_tensor * src1 = mm_node->src[1];
+                            const ggml_tensor * ids  = mm_node->src[2];
+
+                            // Use the 3-op fused kernel only if the 2-op
+                            // fusion path would have been chosen anyway
+                            // (matmul-vec regime, n=1 dst, non-Pascal
+                            // arch).  Larger-N matmul falls through.
+                            if (ggml_cuda_should_fuse_mul_mat_vec_q(mm_node)) {
+                                ggml_cuda_mm_fusion_args_host fusion_data{};
+                                fusion_data.x_bias     = bias_tensor;
+                                fusion_data.x_residual = residual_tensor;
+
+                                ggml_cuda_mul_mat_vec_q(*cuda_ctx, src0, src1, ids, residual_node, &fusion_data);
+                                fused_mul_mat_vec = true;
+                                fused_node_count  = 3;
+                            } else if (ggml_cuda_should_fuse_mul_mat_vec_f(mm_node)) {
+                                ggml_cuda_mm_fusion_args_host fusion_data{};
+                                fusion_data.x_bias     = bias_tensor;
+                                fusion_data.x_residual = residual_tensor;
+                                ggml_cuda_mul_mat_vec_f(*cuda_ctx, src0, src1, ids, residual_node, &fusion_data);
+                                fused_mul_mat_vec = true;
+                                fused_node_count  = 3;
+                            }
+                        }
+                    }
+
+                    if (fused_mul_mat_vec) {
+                        i += fused_node_count - 1;
+                        continue;
+                    }
+
                     fused_mul_mat_vec = false;
                     fused_node_count = 0;
 
