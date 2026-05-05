@@ -104,7 +104,7 @@ set_and_check(GGML_LIB_DIR "@PACKAGE_GGML_LIB_INSTALL_DIR@")
 if(NOT TARGET ggml::ggml)
     find_package(Threads REQUIRED)
 
-    find_library(GGML_LIBRARY ggml
+    find_library(GGML_LIBRARY NAMES "${GGML_LIB_OUTPUT_PREFIX}ggml" ggml
         REQUIRED
         HINTS ${GGML_LIB_DIR}
         NO_CMAKE_FIND_ROOT_PATH)
@@ -114,7 +114,7 @@ if(NOT TARGET ggml::ggml)
         PROPERTIES
             IMPORTED_LOCATION "${GGML_LIBRARY}")
 
-    find_library(GGML_BASE_LIBRARY ggml-base
+    find_library(GGML_BASE_LIBRARY NAMES "${GGML_LIB_OUTPUT_PREFIX}ggml-base" ggml-base
         REQUIRED
         HINTS ${GGML_LIB_DIR}
         NO_CMAKE_FIND_ROOT_PATH)
@@ -130,7 +130,8 @@ if(NOT TARGET ggml::ggml)
             string(REPLACE "-" "_" _ggml_backend_pfx "${_ggml_backend}")
             string(TOUPPER "${_ggml_backend_pfx}" _ggml_backend_pfx)
 
-            find_library(${_ggml_backend_pfx}_LIBRARY ${_ggml_backend}
+            find_library(${_ggml_backend_pfx}_LIBRARY
+                NAMES "${GGML_LIB_OUTPUT_PREFIX}${_ggml_backend}" "${_ggml_backend}"
                 REQUIRED
                 HINTS ${GGML_LIB_DIR}
                 NO_CMAKE_FIND_ROOT_PATH)

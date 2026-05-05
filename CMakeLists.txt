@@ -186,6 +186,12 @@ set(GGML_SCHED_MAX_COPIES  "4" CACHE STRING "ggml: max input copies for pipeline
 option(GGML_CPU                             "ggml: enable CPU backend"                        ON)
 option(GGML_SCHED_NO_REALLOC                "ggml: disallow reallocations in ggml-alloc (for debugging)" OFF)
 
+# When non-empty, ggml libs land on disk as `lib<prefix>ggml-*.{a,so,dll}` and the
+# runtime backend loader looks for the same prefix. CMake target names and the
+# `find_package(ggml CONFIG)` package name are unchanged.
+set(GGML_LIB_OUTPUT_PREFIX "" CACHE STRING
+    "ggml: prefix for built ggml library filenames (e.g. 'qvac-speech-')")
+
 # 3rd party libs / backends
 option(GGML_ACCELERATE                      "ggml: enable Accelerate framework"               ON)
 option(GGML_BLAS                            "ggml: use BLAS"                                  ${GGML_BLAS_DEFAULT})
@@ -293,6 +299,41 @@ include(GNUInstallDirs)
 #
 
 add_subdirectory(src)
+
+if (NOT GGML_LIB_OUTPUT_PREFIX STREQUAL "")
+    function(_ggml_apply_lib_output_prefix target)
+        if (NOT TARGET ${target})
+            return()
+        endif()
+        get_target_property(_lop_type ${target} TYPE)
+        if (_lop_type STREQUAL "INTERFACE_LIBRARY" OR
+            _lop_type STREQUAL "OBJECT_LIBRARY")
+            return()
+        endif()
+        get_target_property(_lop_old ${target} OUTPUT_NAME)
+        if (NOT _lop_old OR _lop_old STREQUAL "_lop_old-NOTFOUND")
+            set(_lop_old ${target})
+        endif()
+        set_target_properties(${target} PROPERTIES
+            OUTPUT_NAME "${GGML_LIB_OUTPUT_PREFIX}${_lop_old}")
+    endfunction()
+
+    foreach (_lop_target ggml ggml-base)
+        _ggml_apply_lib_output_prefix(${_lop_target})
+    endforeach()
+    if (DEFINED GGML_AVAILABLE_BACKENDS)
+        foreach (_lop_target ${GGML_AVAILABLE_BACKENDS})
+            _ggml_apply_lib_output_prefix(${_lop_target})
+        endforeach()
+    endif()
+
+    if (TARGET ggml-base)
+        target_compile_definitions(ggml-base PRIVATE
+            GGML_BACKEND_DL_PROJECT_PREFIX="${GGML_LIB_OUTPUT_PREFIX}")
+    endif()
+
+    message(STATUS "ggml: lib output prefix '${GGML_LIB_OUTPUT_PREFIX}'")
+endif()
 
 #
 # tests and examples
