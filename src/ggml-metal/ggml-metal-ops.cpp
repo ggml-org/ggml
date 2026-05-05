@@ -10,6 +10,7 @@
 
 #include <cassert>
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
 #include <cmath>
 
@@ -2225,14 +2226,25 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
                    ggml_are_same_shape(r, mm);
         };
 
-        if (ctx->use_fusion && kernel_supports_bias) {
-            // Try MUL_MAT + ADD(bias) + ADD(residual) first; it saves two
-            // dispatches per linear layer instead of one.
+        // Q-variant mat-vec MUL_MAT + ADD(bias) [+ ADD(residual)] fusion.
+        // Used by Chatterbox Turbo's autoregressive T3 step.  Empirically
+        // produces wrong results on parakeet.cpp's EOU joint-network q8_0
+        // matmul (zero tokens decoded), so consumers that hit that path
+        // can compile-out this branch by passing
+        // -DGGML_METAL_FUSE_MV_BIAS_DISABLE to the metal backend (kept
+        // ON by default so chatterbox keeps its speedup).  A runtime
+        // override via GGML_METAL_FUSION_MV_BIAS_DISABLE=1 covers the
+        // single-binary case where one process loads both models.
+#if !defined(GGML_METAL_FUSE_MV_BIAS_DISABLE)
+        const bool fuse_mv_bias_runtime =
+            (getenv("GGML_METAL_FUSION_MV_BIAS_DISABLE") == nullptr);
+
+        if (ctx->use_fusion && kernel_supports_bias && fuse_mv_bias_runtime) {
             ggml_op fops3[3] = { GGML_OP_MUL_MAT, GGML_OP_ADD, GGML_OP_ADD };
             if (ctx->can_fuse(idx, fops3, 3)) {
-                ggml_tensor * f0 = ctx->node(idx);     // mul_mat
-                ggml_tensor * f1 = ctx->node(idx + 1); // add(t0, bias)
-                ggml_tensor * f2 = ctx->node(idx + 2); // add(t1, residual)
+                ggml_tensor * f0 = ctx->node(idx);
+                ggml_tensor * f1 = ctx->node(idx + 1);
+                ggml_tensor * f2 = ctx->node(idx + 2);
 
                 if (f1->src[0] == f0 && f2->src[0] == f1 &&
                     bias_ok(f1->src[1]) &&
@@ -2249,7 +2261,6 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
                 }
             }
 
-            // Fall back to MUL_MAT + ADD(bias)
             if (n_fuse == 1) {
                 ggml_op fops2[2] = { GGML_OP_MUL_MAT, GGML_OP_ADD };
                 if (ctx->can_fuse(idx, fops2, 2)) {
@@ -2267,6 +2278,7 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
                 }
             }
         }
+#endif
 
         auto pipeline = ggml_metal_library_get_pipeline_mul_mv(lib, op, has_bias, has_residual);
 
