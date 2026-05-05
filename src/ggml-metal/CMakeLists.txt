@@ -23,6 +23,10 @@ if (GGML_METAL_NDEBUG)
     add_compile_definitions(GGML_METAL_NDEBUG)
 endif()
 
+if (NOT GGML_METAL_FUSE_MV_BIAS)
+    target_compile_definitions(ggml-metal PRIVATE GGML_METAL_FUSE_MV_BIAS_DISABLE)
+endif()
+
 set(METALLIB_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/../ggml-common.h")
 if (GGML_METAL_EMBED_LIBRARY)
     enable_language(ASM)
