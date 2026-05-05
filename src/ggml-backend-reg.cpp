@@ -442,11 +442,30 @@ static fs::path get_executable_path() {
 #endif
 }
 
+// parakeet patch: allow consuming projects to override the backend
+// shared-library filename prefix at compile time. Without this, the
+// loader hard-codes "ggml-" (Windows) / "libggml-" (other), so two
+// addons that vendor different ggml versions and rename their bundled
+// backend .so/.dll files to avoid filename collisions still cannot be
+// loaded with `GGML_BACKEND_DL=ON`: the discovery walk in
+// `ggml_backend_load_best` only matches the unprefixed names. Define
+// `GGML_BACKEND_DL_PROJECT_PREFIX` (a string literal, e.g.
+// "parakeet-") at compile time and the loader will instead search for
+// "<prefix>ggml-*" / "lib<prefix>ggml-*". Default behaviour (macro
+// undefined) is byte-equal to upstream.
 static fs::path backend_filename_prefix() {
+#if defined(GGML_BACKEND_DL_PROJECT_PREFIX)
+#ifdef _WIN32
+    return fs::u8path(GGML_BACKEND_DL_PROJECT_PREFIX "ggml-");
+#else
+    return fs::u8path("lib" GGML_BACKEND_DL_PROJECT_PREFIX "ggml-");
+#endif
+#else
 #ifdef _WIN32
     return fs::u8path("ggml-");
 #else
     return fs::u8path("libggml-");
+#endif
 #endif
 }
 
