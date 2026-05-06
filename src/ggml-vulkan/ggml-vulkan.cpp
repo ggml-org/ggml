@@ -23,8 +23,14 @@ DispatchLoaderDynamic & ggml_vk_default_dispatcher();
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <system_error>
 #include <tuple>
 #include <vector>
 #include <deque>
@@ -864,6 +870,18 @@ struct vk_device_struct {
     bool allow_sysmem_fallback;
     bool disable_graph_optimize;
 
+    // Optional persistent VkPipelineCache.  Enabled only when the caller
+    // sets GGML_VK_PIPELINE_CACHE_DIR to a non-empty path.  When enabled,
+    // createPipelineCache is seeded from disk at init and getPipelineCacheData
+    // is written back from ggml_vk_cleanup(), so repeated
+    // ggml_backend_vk_init() invocations (and separate processes) skip the
+    // shader-compile wave that Vulkan normally pays on every cold
+    // command-buffer graph-build.  When pipeline_cache is VK_NULL_HANDLE
+    // (default / opt-out / mkdir failure) behaviour is identical to upstream
+    // (createComputePipeline takes VK_NULL_HANDLE, which is legal).
+    vk::PipelineCache pipeline_cache = VK_NULL_HANDLE;
+    std::string       pipeline_cache_path;
+
     std::unique_ptr<vk_memory_logger> memory_logger;
 
     ~vk_device_struct() {
@@ -888,9 +906,51 @@ struct vk_device_struct {
 
         device.destroyDescriptorSetLayout(dsl);
 
+        // Destroy the VkPipelineCache handle here if it's still alive.  The
+        // on-disk persistence happens earlier, in ggml_vk_cleanup(), because
+        // this destructor is not reliably reached at process exit: pipelines
+        // and helpers hold shared_ptr<vk_device_struct> refs that keep the
+        // refcount above 0 until well after the Vulkan dispatcher is gone.
+        if (pipeline_cache) {
+            device.destroyPipelineCache(pipeline_cache);
+            pipeline_cache = VK_NULL_HANDLE;
+        }
+
         device.destroy();
     }
 };
+
+// Flush the optional persistent pipeline cache to disk.  Called from
+// ggml_vk_cleanup() while the device shared_ptr is still alive and the
+// Vulkan dispatcher is still valid.  Safe to call multiple times per device
+// (the write is atomic via tmp + rename; idempotent).  No-op when persistent
+// caching was not enabled at init time.
+static void ggml_vk_save_pipeline_cache(vk_device & device) {
+    if (!device || !device->pipeline_cache || device->pipeline_cache_path.empty()) {
+        return;
+    }
+    try {
+        const std::vector<uint8_t> blob = device->device.getPipelineCacheData(device->pipeline_cache);
+        if (blob.empty()) {
+            return;
+        }
+        const std::string tmp_path = device->pipeline_cache_path + ".tmp";
+        std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            return;
+        }
+        out.write(reinterpret_cast<const char *>(blob.data()),
+                  static_cast<std::streamsize>(blob.size()));
+        out.close();
+        if (out.good()) {
+            (void) std::rename(tmp_path.c_str(), device->pipeline_cache_path.c_str());
+        } else {
+            (void) std::remove(tmp_path.c_str());
+        }
+    } catch (const std::exception &) {
+        // best-effort; silently drop the write
+    }
+}
 
 void vk_command_pool::init(vk_device& device, vk_queue *q_) {
     cmd_buffers.clear();
@@ -2206,7 +2266,10 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
 #endif
 
     try {
-        pipeline->pipeline = device->device.createComputePipeline(VK_NULL_HANDLE, compute_pipeline_create_info).value;
+        // device->pipeline_cache is VK_NULL_HANDLE when persistent caching is
+        // opt-ed-out or its init failed; VK treats that as "no cache" — same
+        // as before this patch.
+        pipeline->pipeline = device->device.createComputePipeline(device->pipeline_cache, compute_pipeline_create_info).value;
     } catch (const vk::SystemError& e) {
         std::cerr << "ggml_vulkan: Compute pipeline creation failed for " << pipeline->name << std::endl;
         std::cerr << "ggml_vulkan: " << e.what() << std::endl;
@@ -5506,6 +5569,79 @@ static vk_device ggml_vk_get_device(size_t idx) {
             dsl_binding);
         descriptor_set_layout_create_info.setPNext(&dslbfci);
         device->dsl = device->device.createDescriptorSetLayout(descriptor_set_layout_create_info);
+
+        // -------------------------------------------------------------------
+        // Persistent VkPipelineCache (explicit opt-in only).
+        //
+        // Enabled by setting GGML_VK_PIPELINE_CACHE_DIR to a non-empty
+        // directory path.  When unset or empty the feature is off and
+        // behaviour is byte-identical to upstream ggml-vulkan.
+        //
+        // No auto-discovery of $XDG_CACHE_HOME or $HOME: ggml is a library
+        // distributed through package managers and consumed by applications
+        // that should decide whether and where to persist Vulkan artefacts.
+        // Writing to the user's home directory without being asked is a
+        // side effect library consumers cannot see from the API surface.
+        //
+        // Filename keyed on vendorID/deviceID/driverVersion; Vulkan itself
+        // validates the blob header and silently ignores stale data if the
+        // shader bundle or driver changed.
+        //
+        // The cache is consulted by createComputePipeline in
+        // ggml_vk_create_pipeline_func and flushed back to disk from
+        // ggml_vk_cleanup().  A cold first-process graph dispatch that used
+        // to pay seconds of shader compile drops to tens of ms on drivers
+        // without an aggressive per-app system cache (Mesa/RADV,
+        // Android Adreno/Mali, fresh NVIDIA installs, containers).
+        // See: QVAC-17872 for measured cold->warm deltas.
+        // -------------------------------------------------------------------
+        {
+            const char * env_dir = getenv("GGML_VK_PIPELINE_CACHE_DIR");
+
+            std::string dir;
+            if (env_dir != nullptr && *env_dir != '\0') {
+                dir = env_dir;
+            }
+
+            if (!dir.empty()) {
+                std::error_code mkec;
+                std::filesystem::create_directories(dir, mkec);
+                (void) mkec;  // on failure we still try createPipelineCache with an empty seed
+
+                char fname[64];
+                snprintf(fname, sizeof(fname),
+                         "%04x-%04x-%08x.pcache",
+                         (unsigned) device->properties.vendorID,
+                         (unsigned) device->properties.deviceID,
+                         (unsigned) device->properties.driverVersion);
+                device->pipeline_cache_path = dir + "/" + fname;
+
+                std::vector<uint8_t> seed;
+                {
+                    std::ifstream in(device->pipeline_cache_path, std::ios::binary | std::ios::ate);
+                    if (in) {
+                        const std::streamoff n = in.tellg();
+                        if (n > 0) {
+                            seed.resize(static_cast<size_t>(n));
+                            in.seekg(0, std::ios::beg);
+                            in.read(reinterpret_cast<char *>(seed.data()), static_cast<std::streamsize>(seed.size()));
+                            if (!in) seed.clear();
+                        }
+                    }
+                }
+
+                vk::PipelineCacheCreateInfo pci(
+                    {},
+                    seed.size(),
+                    seed.empty() ? nullptr : seed.data());
+                try {
+                    device->pipeline_cache = device->device.createPipelineCache(pci);
+                } catch (const vk::SystemError &) {
+                    device->pipeline_cache = VK_NULL_HANDLE;
+                    device->pipeline_cache_path.clear();
+                }
+            }
+        }
 
         ggml_vk_load_shaders(device);
 
@@ -13357,6 +13493,13 @@ static void ggml_vk_graph_cleanup(ggml_backend_vk_context * ctx) {
 // Clean up on backend free
 static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
     VK_LOG_DEBUG("ggml_vk_cleanup(" << ctx->name << ")");
+
+    // Persist the optional on-disk pipeline cache while the device shared_ptr
+    // and the Vulkan dispatcher are still valid.  Doing this from
+    // ~vk_device_struct() is unreliable: pipelines and helpers hold
+    // shared_ptr<vk_device_struct> refs that keep the refcount non-zero by
+    // typical process-exit time, so the device destructor often never runs.
+    ggml_vk_save_pipeline_cache(ctx->device);
     // discard any unsubmitted command buffers
     ctx->compute_ctx.reset();
     // wait for any pending command buffers to finish
