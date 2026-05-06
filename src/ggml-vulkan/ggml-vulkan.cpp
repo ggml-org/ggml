@@ -881,6 +881,12 @@ struct vk_device_struct {
     // (createComputePipeline takes VK_NULL_HANDLE, which is legal).
     vk::PipelineCache pipeline_cache = VK_NULL_HANDLE;
     std::string       pipeline_cache_path;
+    // QVAC-17872 round-2: bytes already on disk for this cache.  Used by
+    // the eager flush in ggml_vk_load_shaders to skip the disk write on
+    // pure cache-hit paths (warm runs where every pipeline came from the
+    // seed blob): if getPipelineCacheData().size() == this value, the
+    // cache content is unchanged and there is nothing to persist.
+    size_t            pipeline_cache_last_size = 0;
 
     std::unique_ptr<vk_memory_logger> memory_logger;
 
@@ -934,6 +940,15 @@ static void ggml_vk_save_pipeline_cache(vk_device & device) {
         if (blob.empty()) {
             return;
         }
+        // QVAC-17872 round-2: skip the disk write if the cache content
+        // is byte-equivalent in size to what we already have on disk.
+        // Avoids re-writing 1 MB on every cleanup of a process that
+        // didn't compile any new pipelines (warm runs).  The eager-flush
+        // path in ggml_vk_load_shaders uses the same pipeline_cache_last_size
+        // bookkeeping so they cooperate idempotently.
+        if (blob.size() == device->pipeline_cache_last_size) {
+            return;
+        }
         const std::string tmp_path = device->pipeline_cache_path + ".tmp";
         std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
         if (!out) {
@@ -942,8 +957,9 @@ static void ggml_vk_save_pipeline_cache(vk_device & device) {
         out.write(reinterpret_cast<const char *>(blob.data()),
                   static_cast<std::streamsize>(blob.size()));
         out.close();
-        if (out.good()) {
-            (void) std::rename(tmp_path.c_str(), device->pipeline_cache_path.c_str());
+        if (out.good() &&
+            std::rename(tmp_path.c_str(), device->pipeline_cache_path.c_str()) == 0) {
+            device->pipeline_cache_last_size = blob.size();
         } else {
             (void) std::remove(tmp_path.c_str());
         }
@@ -4846,6 +4862,44 @@ static void ggml_vk_load_shaders(vk_device& device) {
     for (auto &c : compiles) {
         c.wait();
     }
+
+    // QVAC-17872 round-2: persist the pipeline cache eagerly when this
+    // load_shaders call actually GREW the cache (i.e. compiled at least
+    // one pipeline whose SPIR-V was not already in the seed blob).
+    // Without this, lazy-compile work done by
+    // ggml_pipeline_request_descriptor_sets during a long-running graph
+    // compute is only flushed in ggml_vk_cleanup at backend free time —
+    // a process crash in between throws away the entire cold-compile
+    // wave and the next process pays it again.
+    //
+    // Crucially, on a warm run with a populated seed blob, every
+    // pipeline still goes through createComputePipeline → compiles is
+    // non-empty → but getPipelineCacheData().size() == seed size, so we
+    // skip the disk write.  This keeps warm-run overhead at zero (we
+    // measured a +90 ms WALL regression with an unconditional flush).
+    if (!compiles.empty() && device->pipeline_cache && !device->pipeline_cache_path.empty()) {
+        try {
+            const std::vector<uint8_t> blob = device->device.getPipelineCacheData(device->pipeline_cache);
+            if (!blob.empty() && blob.size() > device->pipeline_cache_last_size) {
+                const std::string tmp_path = device->pipeline_cache_path + ".tmp";
+                std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+                if (out) {
+                    out.write(reinterpret_cast<const char *>(blob.data()),
+                              static_cast<std::streamsize>(blob.size()));
+                    out.close();
+                    if (out.good() &&
+                        std::rename(tmp_path.c_str(), device->pipeline_cache_path.c_str()) == 0) {
+                        device->pipeline_cache_last_size = blob.size();
+                    } else {
+                        (void) std::remove(tmp_path.c_str());
+                    }
+                }
+            }
+        } catch (const std::exception &) {
+            // best-effort; on any failure we silently fall back to the
+            // ggml_vk_cleanup-time flush.
+        }
+    }
 }
 
 static bool ggml_vk_khr_cooperative_matrix_support(const vk::PhysicalDeviceProperties& props, const vk::PhysicalDeviceDriverProperties& driver_props, vk_device_architecture arch);
@@ -5636,6 +5690,14 @@ static vk_device ggml_vk_get_device(size_t idx) {
                     seed.empty() ? nullptr : seed.data());
                 try {
                     device->pipeline_cache = device->device.createPipelineCache(pci);
+                    // QVAC-17872 round-2: seed size matches the disk blob;
+                    // if the eager-flush path observes the same size after
+                    // a load_shaders call, it's a pure cache-hit run and
+                    // the disk write is skipped.  The driver may rewrite
+                    // header fields that change blob.size() vs file size
+                    // by a few bytes — that's still a one-time growth and
+                    // we'll write the new size, then steady-state from there.
+                    device->pipeline_cache_last_size = seed.size();
                 } catch (const vk::SystemError &) {
                     device->pipeline_cache = VK_NULL_HANDLE;
                     device->pipeline_cache_path.clear();
