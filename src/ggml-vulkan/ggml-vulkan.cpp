@@ -16100,7 +16100,8 @@ static size_t ggml_backend_vk_reg_get_device_count(ggml_backend_reg_t reg) {
 }
 
 static ggml_backend_dev_t ggml_backend_vk_reg_get_device(ggml_backend_reg_t reg, size_t device) {
-    static std::vector<ggml_backend_dev_t> devices;
+    static std::vector<std::unique_ptr<ggml_backend_device>> devices;
+    static std::vector<std::unique_ptr<ggml_backend_vk_device_context>> contexts;
 
     static bool initialized = false;
 
@@ -16110,7 +16111,7 @@ static ggml_backend_dev_t ggml_backend_vk_reg_get_device(ggml_backend_reg_t reg,
         if (!initialized) {
             const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
             for (int i = 0; i < ggml_backend_vk_get_device_count(); i++) {
-                ggml_backend_vk_device_context * ctx = new ggml_backend_vk_device_context;
+                auto ctx = std::make_unique<ggml_backend_vk_device_context>();
                 char desc[256];
                 ggml_backend_vk_get_device_description(i, desc, sizeof(desc));
                 ctx->device = i;
@@ -16119,18 +16120,20 @@ static ggml_backend_dev_t ggml_backend_vk_reg_get_device(ggml_backend_reg_t reg,
                 ctx->is_integrated_gpu = ggml_backend_vk_get_device_type(i) == vk::PhysicalDeviceType::eIntegratedGpu;
                 ctx->pci_bus_id = ggml_backend_vk_get_device_pci_id(i);
                 ctx->op_offload_min_batch_size = min_batch_size;
-                devices.push_back(new ggml_backend_device {
+                auto dev = std::make_unique<ggml_backend_device>(ggml_backend_device {
                     /* .iface   = */ ggml_backend_vk_device_i,
                     /* .reg     = */ reg,
-                    /* .context = */ ctx,
+                    /* .context = */ ctx.get(),
                 });
+                contexts.push_back(std::move(ctx));
+                devices.push_back(std::move(dev));
             }
             initialized = true;
         }
     }
 
     GGML_ASSERT(device < devices.size());
-    return devices[device];
+    return devices[device].get();
 }
 
 static const struct ggml_backend_reg_i ggml_backend_vk_reg_i = {

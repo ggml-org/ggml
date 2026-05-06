@@ -112,7 +112,8 @@ if(NOT TARGET ggml::ggml)
     add_library(ggml::ggml UNKNOWN IMPORTED)
     set_target_properties(ggml::ggml
         PROPERTIES
-            IMPORTED_LOCATION "${GGML_LIBRARY}")
+            IMPORTED_LOCATION "${GGML_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}")
 
     find_library(GGML_BASE_LIBRARY NAMES "${GGML_LIB_OUTPUT_PREFIX}ggml-base" ggml-base
         REQUIRED
@@ -120,13 +121,25 @@ if(NOT TARGET ggml::ggml)
         NO_CMAKE_FIND_ROOT_PATH)
 
     add_library(ggml::ggml-base UNKNOWN IMPORTED)
+    set_property(TARGET ggml::ggml-base PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}")
     set_target_properties(ggml::ggml-base
         PROPERTIES
             IMPORTED_LOCATION "${GGML_BASE_LIBRARY}")
 
+    if(GGML_MAX_NAME)
+        set_property(TARGET ggml::ggml-base APPEND PROPERTY
+            INTERFACE_COMPILE_DEFINITIONS "GGML_MAX_NAME=${GGML_MAX_NAME}")
+    endif()
+
     set(_ggml_all_targets "")
-    if (NOT GGML_BACKEND_DL)
+    # In hybrid mode (GGML_BACKEND_DL + GGML_CPU_STATIC), only the CPU backend
+    # is static and must still be exported to downstream consumers.
+    if (NOT GGML_BACKEND_DL OR GGML_CPU_STATIC)
         foreach(_ggml_backend ${GGML_AVAILABLE_BACKENDS})
+            string(REGEX MATCH "^ggml-cpu" is_cpu_variant "${_ggml_backend}")
+            if (GGML_BACKEND_DL AND GGML_CPU_STATIC AND NOT is_cpu_variant)
+                continue()
+            endif()
             string(REPLACE "-" "_" _ggml_backend_pfx "${_ggml_backend}")
             string(TOUPPER "${_ggml_backend_pfx}" _ggml_backend_pfx)
 

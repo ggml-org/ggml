@@ -178,6 +178,7 @@ option(GGML_XTHEADVECTOR     "ggml: enable xtheadvector"      OFF)
 option(GGML_VXE              "ggml: enable vxe"               ${GGML_NATIVE})
 
 option(GGML_CPU_ALL_VARIANTS "ggml: build all variants of the CPU backend (requires GGML_BACKEND_DL)" OFF)
+option(GGML_CPU_STATIC        "ggml: build CPU backend as static library even with GGML_BACKEND_DL"   OFF)
 set(GGML_CPU_ARM_ARCH        "" CACHE STRING "ggml: CPU architecture for ARM")
 set(GGML_CPU_POWERPC_CPUTYPE "" CACHE STRING "ggml: CPU type for PowerPC")
 
@@ -188,9 +189,11 @@ option(GGML_SCHED_NO_REALLOC                "ggml: disallow reallocations in ggm
 
 # When non-empty, ggml libs land on disk as `lib<prefix>ggml-*.{a,so,dll}` and the
 # runtime backend loader looks for the same prefix. CMake target names and the
-# `find_package(ggml CONFIG)` package name are unchanged.
-set(GGML_LIB_OUTPUT_PREFIX "" CACHE STRING
-    "ggml: prefix for built ggml library filenames (e.g. 'qvac-speech-')")
+# `find_package(ggml CONFIG)` package name are unchanged. Defaults to
+# `qvac-speech-` on the speech branch to match the loader's compiled-in default
+# in `ggml-backend-reg.cpp`.
+set(GGML_LIB_OUTPUT_PREFIX "qvac-speech-" CACHE STRING
+    "ggml: prefix for built ggml library filenames")
 
 # 3rd party libs / backends
 option(GGML_ACCELERATE                      "ggml: enable Accelerate framework"               ON)
@@ -365,6 +368,7 @@ set(GGML_PUBLIC_HEADERS
     include/ggml-cpp.h
     include/ggml-cuda.h
     include/ggml-opt.h
+    include/ggml-opencl.h
     include/ggml-metal.h
     include/ggml-rpc.h
     include/ggml-virtgpu.h
