@@ -949,7 +949,9 @@ static void ggml_vk_save_pipeline_cache(vk_device & device) {
         if (blob.size() == device->pipeline_cache_last_size) {
             return;
         }
-        const std::string tmp_path = device->pipeline_cache_path + ".tmp";
+        const std::filesystem::path final_path(device->pipeline_cache_path);
+        std::filesystem::path tmp_path = final_path;
+        tmp_path += ".tmp";
         std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
         if (!out) {
             return;
@@ -957,11 +959,18 @@ static void ggml_vk_save_pipeline_cache(vk_device & device) {
         out.write(reinterpret_cast<const char *>(blob.data()),
                   static_cast<std::streamsize>(blob.size()));
         out.close();
-        if (out.good() &&
-            std::rename(tmp_path.c_str(), device->pipeline_cache_path.c_str()) == 0) {
-            device->pipeline_cache_last_size = blob.size();
+        if (out.good()) {
+            std::error_code ec;
+            std::filesystem::rename(tmp_path, final_path, ec);
+            if (!ec) {
+                device->pipeline_cache_last_size = blob.size();
+            } else {
+                std::error_code ignore;
+                std::filesystem::remove(tmp_path, ignore);
+            }
         } else {
-            (void) std::remove(tmp_path.c_str());
+            std::error_code ignore;
+            std::filesystem::remove(tmp_path, ignore);
         }
     } catch (const std::exception &) {
         // best-effort; silently drop the write
@@ -4881,17 +4890,26 @@ static void ggml_vk_load_shaders(vk_device& device) {
         try {
             const std::vector<uint8_t> blob = device->device.getPipelineCacheData(device->pipeline_cache);
             if (!blob.empty() && blob.size() > device->pipeline_cache_last_size) {
-                const std::string tmp_path = device->pipeline_cache_path + ".tmp";
+                const std::filesystem::path final_path(device->pipeline_cache_path);
+                std::filesystem::path tmp_path = final_path;
+                tmp_path += ".tmp";
                 std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
                 if (out) {
                     out.write(reinterpret_cast<const char *>(blob.data()),
                               static_cast<std::streamsize>(blob.size()));
                     out.close();
-                    if (out.good() &&
-                        std::rename(tmp_path.c_str(), device->pipeline_cache_path.c_str()) == 0) {
-                        device->pipeline_cache_last_size = blob.size();
+                    if (out.good()) {
+                        std::error_code ec;
+                        std::filesystem::rename(tmp_path, final_path, ec);
+                        if (!ec) {
+                            device->pipeline_cache_last_size = blob.size();
+                        } else {
+                            std::error_code ignore;
+                            std::filesystem::remove(tmp_path, ignore);
+                        }
                     } else {
-                        (void) std::remove(tmp_path.c_str());
+                        std::error_code ignore;
+                        std::filesystem::remove(tmp_path, ignore);
                     }
                 }
             }
@@ -5668,7 +5686,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
                          (unsigned) device->properties.vendorID,
                          (unsigned) device->properties.deviceID,
                          (unsigned) device->properties.driverVersion);
-                device->pipeline_cache_path = dir + "/" + fname;
+                device->pipeline_cache_path = (std::filesystem::path(dir) / fname).string();
 
                 std::vector<uint8_t> seed;
                 {
