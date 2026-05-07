@@ -178,6 +178,7 @@ option(GGML_XTHEADVECTOR     "ggml: enable xtheadvector"      OFF)
 option(GGML_VXE              "ggml: enable vxe"               ${GGML_NATIVE})
 
 option(GGML_CPU_ALL_VARIANTS "ggml: build all variants of the CPU backend (requires GGML_BACKEND_DL)" OFF)
+option(GGML_CPU_STATIC        "ggml: build CPU backend as static library even with GGML_BACKEND_DL"   OFF)
 set(GGML_CPU_ARM_ARCH        "" CACHE STRING "ggml: CPU architecture for ARM")
 set(GGML_CPU_POWERPC_CPUTYPE "" CACHE STRING "ggml: CPU type for PowerPC")
 
@@ -185,6 +186,14 @@ set(GGML_CPU_POWERPC_CPUTYPE "" CACHE STRING "ggml: CPU type for PowerPC")
 set(GGML_SCHED_MAX_COPIES  "4" CACHE STRING "ggml: max input copies for pipeline parallelism")
 option(GGML_CPU                             "ggml: enable CPU backend"                        ON)
 option(GGML_SCHED_NO_REALLOC                "ggml: disallow reallocations in ggml-alloc (for debugging)" OFF)
+
+# When non-empty, ggml libs land on disk as `lib<prefix>ggml-*.{a,so,dll}` and the
+# runtime backend loader looks for the same prefix. CMake target names and the
+# `find_package(ggml CONFIG)` package name are unchanged. Defaults to
+# `qvac-speech-` on the speech branch to match the loader's compiled-in default
+# in `ggml-backend-reg.cpp`.
+set(GGML_LIB_OUTPUT_PREFIX "qvac-speech-" CACHE STRING
+    "ggml: prefix for built ggml library filenames")
 
 # 3rd party libs / backends
 option(GGML_ACCELERATE                      "ggml: enable Accelerate framework"               ON)
@@ -294,6 +303,41 @@ include(GNUInstallDirs)
 
 add_subdirectory(src)
 
+if (NOT GGML_LIB_OUTPUT_PREFIX STREQUAL "")
+    function(_ggml_apply_lib_output_prefix target)
+        if (NOT TARGET ${target})
+            return()
+        endif()
+        get_target_property(_lop_type ${target} TYPE)
+        if (_lop_type STREQUAL "INTERFACE_LIBRARY" OR
+            _lop_type STREQUAL "OBJECT_LIBRARY")
+            return()
+        endif()
+        get_target_property(_lop_old ${target} OUTPUT_NAME)
+        if (NOT _lop_old OR _lop_old STREQUAL "_lop_old-NOTFOUND")
+            set(_lop_old ${target})
+        endif()
+        set_target_properties(${target} PROPERTIES
+            OUTPUT_NAME "${GGML_LIB_OUTPUT_PREFIX}${_lop_old}")
+    endfunction()
+
+    foreach (_lop_target ggml ggml-base)
+        _ggml_apply_lib_output_prefix(${_lop_target})
+    endforeach()
+    if (DEFINED GGML_AVAILABLE_BACKENDS)
+        foreach (_lop_target ${GGML_AVAILABLE_BACKENDS})
+            _ggml_apply_lib_output_prefix(${_lop_target})
+        endforeach()
+    endif()
+
+    if (TARGET ggml-base)
+        target_compile_definitions(ggml-base PRIVATE
+            GGML_BACKEND_DL_PROJECT_PREFIX="${GGML_LIB_OUTPUT_PREFIX}")
+    endif()
+
+    message(STATUS "ggml: lib output prefix '${GGML_LIB_OUTPUT_PREFIX}'")
+endif()
+
 #
 # tests and examples
 #
@@ -324,6 +368,7 @@ set(GGML_PUBLIC_HEADERS
     include/ggml-cpp.h
     include/ggml-cuda.h
     include/ggml-opt.h
+    include/ggml-opencl.h
     include/ggml-metal.h
     include/ggml-rpc.h
     include/ggml-virtgpu.h

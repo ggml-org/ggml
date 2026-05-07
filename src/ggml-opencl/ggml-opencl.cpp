@@ -4353,15 +4353,6 @@ static ggml_backend_i ggml_backend_opencl_i = {
 };
 
 ggml_backend_t ggml_backend_opencl_init(void) {
-    // qvac-parakeet patch: bail out cleanly when the OpenCL backend
-    // discovery saw zero usable devices. Upstream calls
-    // ggml_backend_reg_dev_get() unconditionally, which asserts on an
-    // empty device list. Parakeet's host code expects a nullable result
-    // from ggml_backend_opencl_init() (it falls back to CPU when the
-    // returned backend is null); the assertion makes that fallback path
-    // unreachable on hosts where ggml-opencl can't find any GPU it
-    // accepts (Adreno-only environments without an Adreno device,
-    // headless CI runners, etc.).
     ggml_backend_reg_t reg = ggml_backend_opencl_reg();
     if (ggml_backend_reg_dev_count(reg) == 0) {
         return nullptr;
@@ -6272,7 +6263,11 @@ static size_t ggml_backend_opencl_reg_device_count(ggml_backend_reg_t reg) {
 }
 
 static ggml_backend_dev_t ggml_backend_opencl_reg_device_get(ggml_backend_reg_t reg, size_t index) {
-    GGML_ASSERT(index < ggml_backend_opencl_reg_device_count(reg));
+    size_t n = ggml_backend_opencl_reg_device_count(reg);
+    if (n == 0) {
+        return nullptr;
+    }
+    GGML_ASSERT(index < n);
 
     return &g_ggml_backend_opencl_devices[index];
 

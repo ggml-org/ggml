@@ -462,9 +462,9 @@ static fs::path backend_filename_prefix() {
 #endif
 #else
 #ifdef _WIN32
-    return fs::u8path("ggml-");
+    return fs::u8path("qvac-speech-ggml-");
 #else
-    return fs::u8path("libggml-");
+    return fs::u8path("libqvac-speech-ggml-");
 #endif
 #endif
 }
@@ -552,6 +552,13 @@ static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent,
                     GGML_LOG_DEBUG("%s: posix_stat(%s) failure, error-message: %s\n", __func__, path_str(path).c_str(), ec.message().c_str());
                 }
             }
+        }
+        // Android app packaging can flatten native libraries into one directory.
+        // If loading from the requested subdirectory fails, retry by filename only
+        // and leave lookup to dlopen's default search path resolution.
+        fs::path filename = backend_filename_prefix().native() + name_path.native() + backend_filename_extension().native();
+        if (auto reg = get_reg().load_backend(filename, silent)) {
+            return reg;
         }
         return nullptr;
     }

@@ -23,8 +23,14 @@ DispatchLoaderDynamic & ggml_vk_default_dispatcher();
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <system_error>
 #include <tuple>
 #include <vector>
 #include <deque>
@@ -864,6 +870,24 @@ struct vk_device_struct {
     bool allow_sysmem_fallback;
     bool disable_graph_optimize;
 
+    // Optional persistent VkPipelineCache.  Enabled only when the caller
+    // sets GGML_VK_PIPELINE_CACHE_DIR to a non-empty path.  When enabled,
+    // createPipelineCache is seeded from disk at init and getPipelineCacheData
+    // is written back from ggml_vk_cleanup(), so repeated
+    // ggml_backend_vk_init() invocations (and separate processes) skip the
+    // shader-compile wave that Vulkan normally pays on every cold
+    // command-buffer graph-build.  When pipeline_cache is VK_NULL_HANDLE
+    // (default / opt-out / mkdir failure) behaviour is identical to upstream
+    // (createComputePipeline takes VK_NULL_HANDLE, which is legal).
+    vk::PipelineCache pipeline_cache = VK_NULL_HANDLE;
+    std::string       pipeline_cache_path;
+    // QVAC-17872 round-2: bytes already on disk for this cache.  Used by
+    // the eager flush in ggml_vk_load_shaders to skip the disk write on
+    // pure cache-hit paths (warm runs where every pipeline came from the
+    // seed blob): if getPipelineCacheData().size() == this value, the
+    // cache content is unchanged and there is nothing to persist.
+    size_t            pipeline_cache_last_size = 0;
+
     std::unique_ptr<vk_memory_logger> memory_logger;
 
     ~vk_device_struct() {
@@ -888,9 +912,70 @@ struct vk_device_struct {
 
         device.destroyDescriptorSetLayout(dsl);
 
+        // Destroy the VkPipelineCache handle here if it's still alive.  The
+        // on-disk persistence happens earlier, in ggml_vk_cleanup(), because
+        // this destructor is not reliably reached at process exit: pipelines
+        // and helpers hold shared_ptr<vk_device_struct> refs that keep the
+        // refcount above 0 until well after the Vulkan dispatcher is gone.
+        if (pipeline_cache) {
+            device.destroyPipelineCache(pipeline_cache);
+            pipeline_cache = VK_NULL_HANDLE;
+        }
+
         device.destroy();
     }
 };
+
+// Flush the optional persistent pipeline cache to disk.  Called from
+// ggml_vk_cleanup() while the device shared_ptr is still alive and the
+// Vulkan dispatcher is still valid.  Safe to call multiple times per device
+// (the write is atomic via tmp + rename; idempotent).  No-op when persistent
+// caching was not enabled at init time.
+static void ggml_vk_save_pipeline_cache(vk_device & device) {
+    if (!device || !device->pipeline_cache || device->pipeline_cache_path.empty()) {
+        return;
+    }
+    try {
+        const std::vector<uint8_t> blob = device->device.getPipelineCacheData(device->pipeline_cache);
+        if (blob.empty()) {
+            return;
+        }
+        // QVAC-17872 round-2: skip the disk write if the cache content
+        // is byte-equivalent in size to what we already have on disk.
+        // Avoids re-writing 1 MB on every cleanup of a process that
+        // didn't compile any new pipelines (warm runs).  The eager-flush
+        // path in ggml_vk_load_shaders uses the same pipeline_cache_last_size
+        // bookkeeping so they cooperate idempotently.
+        if (blob.size() == device->pipeline_cache_last_size) {
+            return;
+        }
+        const std::filesystem::path final_path(device->pipeline_cache_path);
+        std::filesystem::path tmp_path = final_path;
+        tmp_path += ".tmp";
+        std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            return;
+        }
+        out.write(reinterpret_cast<const char *>(blob.data()),
+                  static_cast<std::streamsize>(blob.size()));
+        out.close();
+        if (out.good()) {
+            std::error_code ec;
+            std::filesystem::rename(tmp_path, final_path, ec);
+            if (!ec) {
+                device->pipeline_cache_last_size = blob.size();
+            } else {
+                std::error_code ignore;
+                std::filesystem::remove(tmp_path, ignore);
+            }
+        } else {
+            std::error_code ignore;
+            std::filesystem::remove(tmp_path, ignore);
+        }
+    } catch (const std::exception &) {
+        // best-effort; silently drop the write
+    }
+}
 
 void vk_command_pool::init(vk_device& device, vk_queue *q_) {
     cmd_buffers.clear();
@@ -2206,7 +2291,10 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
 #endif
 
     try {
-        pipeline->pipeline = device->device.createComputePipeline(VK_NULL_HANDLE, compute_pipeline_create_info).value;
+        // device->pipeline_cache is VK_NULL_HANDLE when persistent caching is
+        // opt-ed-out or its init failed; VK treats that as "no cache" — same
+        // as before this patch.
+        pipeline->pipeline = device->device.createComputePipeline(device->pipeline_cache, compute_pipeline_create_info).value;
     } catch (const vk::SystemError& e) {
         std::cerr << "ggml_vulkan: Compute pipeline creation failed for " << pipeline->name << std::endl;
         std::cerr << "ggml_vulkan: " << e.what() << std::endl;
@@ -4783,6 +4871,53 @@ static void ggml_vk_load_shaders(vk_device& device) {
     for (auto &c : compiles) {
         c.wait();
     }
+
+    // QVAC-17872 round-2: persist the pipeline cache eagerly when this
+    // load_shaders call actually GREW the cache (i.e. compiled at least
+    // one pipeline whose SPIR-V was not already in the seed blob).
+    // Without this, lazy-compile work done by
+    // ggml_pipeline_request_descriptor_sets during a long-running graph
+    // compute is only flushed in ggml_vk_cleanup at backend free time —
+    // a process crash in between throws away the entire cold-compile
+    // wave and the next process pays it again.
+    //
+    // Crucially, on a warm run with a populated seed blob, every
+    // pipeline still goes through createComputePipeline → compiles is
+    // non-empty → but getPipelineCacheData().size() == seed size, so we
+    // skip the disk write.  This keeps warm-run overhead at zero (we
+    // measured a +90 ms WALL regression with an unconditional flush).
+    if (!compiles.empty() && device->pipeline_cache && !device->pipeline_cache_path.empty()) {
+        try {
+            const std::vector<uint8_t> blob = device->device.getPipelineCacheData(device->pipeline_cache);
+            if (!blob.empty() && blob.size() > device->pipeline_cache_last_size) {
+                const std::filesystem::path final_path(device->pipeline_cache_path);
+                std::filesystem::path tmp_path = final_path;
+                tmp_path += ".tmp";
+                std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+                if (out) {
+                    out.write(reinterpret_cast<const char *>(blob.data()),
+                              static_cast<std::streamsize>(blob.size()));
+                    out.close();
+                    if (out.good()) {
+                        std::error_code ec;
+                        std::filesystem::rename(tmp_path, final_path, ec);
+                        if (!ec) {
+                            device->pipeline_cache_last_size = blob.size();
+                        } else {
+                            std::error_code ignore;
+                            std::filesystem::remove(tmp_path, ignore);
+                        }
+                    } else {
+                        std::error_code ignore;
+                        std::filesystem::remove(tmp_path, ignore);
+                    }
+                }
+            }
+        } catch (const std::exception &) {
+            // best-effort; on any failure we silently fall back to the
+            // ggml_vk_cleanup-time flush.
+        }
+    }
 }
 
 static bool ggml_vk_khr_cooperative_matrix_support(const vk::PhysicalDeviceProperties& props, const vk::PhysicalDeviceDriverProperties& driver_props, vk_device_architecture arch);
@@ -5506,6 +5641,87 @@ static vk_device ggml_vk_get_device(size_t idx) {
             dsl_binding);
         descriptor_set_layout_create_info.setPNext(&dslbfci);
         device->dsl = device->device.createDescriptorSetLayout(descriptor_set_layout_create_info);
+
+        // -------------------------------------------------------------------
+        // Persistent VkPipelineCache (explicit opt-in only).
+        //
+        // Enabled by setting GGML_VK_PIPELINE_CACHE_DIR to a non-empty
+        // directory path.  When unset or empty the feature is off and
+        // behaviour is byte-identical to upstream ggml-vulkan.
+        //
+        // No auto-discovery of $XDG_CACHE_HOME or $HOME: ggml is a library
+        // distributed through package managers and consumed by applications
+        // that should decide whether and where to persist Vulkan artefacts.
+        // Writing to the user's home directory without being asked is a
+        // side effect library consumers cannot see from the API surface.
+        //
+        // Filename keyed on vendorID/deviceID/driverVersion; Vulkan itself
+        // validates the blob header and silently ignores stale data if the
+        // shader bundle or driver changed.
+        //
+        // The cache is consulted by createComputePipeline in
+        // ggml_vk_create_pipeline_func and flushed back to disk from
+        // ggml_vk_cleanup().  A cold first-process graph dispatch that used
+        // to pay seconds of shader compile drops to tens of ms on drivers
+        // without an aggressive per-app system cache (Mesa/RADV,
+        // Android Adreno/Mali, fresh NVIDIA installs, containers).
+        // See: QVAC-17872 for measured cold->warm deltas.
+        // -------------------------------------------------------------------
+        {
+            const char * env_dir = getenv("GGML_VK_PIPELINE_CACHE_DIR");
+
+            std::string dir;
+            if (env_dir != nullptr && *env_dir != '\0') {
+                dir = env_dir;
+            }
+
+            if (!dir.empty()) {
+                std::error_code mkec;
+                std::filesystem::create_directories(dir, mkec);
+                (void) mkec;  // on failure we still try createPipelineCache with an empty seed
+
+                char fname[64];
+                snprintf(fname, sizeof(fname),
+                         "%04x-%04x-%08x.pcache",
+                         (unsigned) device->properties.vendorID,
+                         (unsigned) device->properties.deviceID,
+                         (unsigned) device->properties.driverVersion);
+                device->pipeline_cache_path = (std::filesystem::path(dir) / fname).string();
+
+                std::vector<uint8_t> seed;
+                {
+                    std::ifstream in(device->pipeline_cache_path, std::ios::binary | std::ios::ate);
+                    if (in) {
+                        const std::streamoff n = in.tellg();
+                        if (n > 0) {
+                            seed.resize(static_cast<size_t>(n));
+                            in.seekg(0, std::ios::beg);
+                            in.read(reinterpret_cast<char *>(seed.data()), static_cast<std::streamsize>(seed.size()));
+                            if (!in) seed.clear();
+                        }
+                    }
+                }
+
+                vk::PipelineCacheCreateInfo pci(
+                    {},
+                    seed.size(),
+                    seed.empty() ? nullptr : seed.data());
+                try {
+                    device->pipeline_cache = device->device.createPipelineCache(pci);
+                    // QVAC-17872 round-2: seed size matches the disk blob;
+                    // if the eager-flush path observes the same size after
+                    // a load_shaders call, it's a pure cache-hit run and
+                    // the disk write is skipped.  The driver may rewrite
+                    // header fields that change blob.size() vs file size
+                    // by a few bytes — that's still a one-time growth and
+                    // we'll write the new size, then steady-state from there.
+                    device->pipeline_cache_last_size = seed.size();
+                } catch (const vk::SystemError &) {
+                    device->pipeline_cache = VK_NULL_HANDLE;
+                    device->pipeline_cache_path.clear();
+                }
+            }
+        }
 
         ggml_vk_load_shaders(device);
 
@@ -13357,6 +13573,13 @@ static void ggml_vk_graph_cleanup(ggml_backend_vk_context * ctx) {
 // Clean up on backend free
 static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
     VK_LOG_DEBUG("ggml_vk_cleanup(" << ctx->name << ")");
+
+    // Persist the optional on-disk pipeline cache while the device shared_ptr
+    // and the Vulkan dispatcher are still valid.  Doing this from
+    // ~vk_device_struct() is unreliable: pipelines and helpers hold
+    // shared_ptr<vk_device_struct> refs that keep the refcount non-zero by
+    // typical process-exit time, so the device destructor often never runs.
+    ggml_vk_save_pipeline_cache(ctx->device);
     // discard any unsubmitted command buffers
     ctx->compute_ctx.reset();
     // wait for any pending command buffers to finish
@@ -15895,7 +16118,8 @@ static size_t ggml_backend_vk_reg_get_device_count(ggml_backend_reg_t reg) {
 }
 
 static ggml_backend_dev_t ggml_backend_vk_reg_get_device(ggml_backend_reg_t reg, size_t device) {
-    static std::vector<ggml_backend_dev_t> devices;
+    static std::vector<std::unique_ptr<ggml_backend_device>> devices;
+    static std::vector<std::unique_ptr<ggml_backend_vk_device_context>> contexts;
 
     static bool initialized = false;
 
@@ -15905,7 +16129,7 @@ static ggml_backend_dev_t ggml_backend_vk_reg_get_device(ggml_backend_reg_t reg,
         if (!initialized) {
             const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
             for (int i = 0; i < ggml_backend_vk_get_device_count(); i++) {
-                ggml_backend_vk_device_context * ctx = new ggml_backend_vk_device_context;
+                auto ctx = std::make_unique<ggml_backend_vk_device_context>();
                 char desc[256];
                 ggml_backend_vk_get_device_description(i, desc, sizeof(desc));
                 ctx->device = i;
@@ -15914,18 +16138,20 @@ static ggml_backend_dev_t ggml_backend_vk_reg_get_device(ggml_backend_reg_t reg,
                 ctx->is_integrated_gpu = ggml_backend_vk_get_device_type(i) == vk::PhysicalDeviceType::eIntegratedGpu;
                 ctx->pci_bus_id = ggml_backend_vk_get_device_pci_id(i);
                 ctx->op_offload_min_batch_size = min_batch_size;
-                devices.push_back(new ggml_backend_device {
+                auto dev = std::make_unique<ggml_backend_device>(ggml_backend_device {
                     /* .iface   = */ ggml_backend_vk_device_i,
                     /* .reg     = */ reg,
-                    /* .context = */ ctx,
+                    /* .context = */ ctx.get(),
                 });
+                contexts.push_back(std::move(ctx));
+                devices.push_back(std::move(dev));
             }
             initialized = true;
         }
     }
 
     GGML_ASSERT(device < devices.size());
-    return devices[device];
+    return devices[device].get();
 }
 
 static const struct ggml_backend_reg_i ggml_backend_vk_reg_i = {
