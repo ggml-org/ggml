@@ -44,6 +44,7 @@ The components are:
   - If missing, then file is by default a typical gguf tensor model file
   - `LoRA` : GGUF file is a LoRA adapter
   - `vocab` : GGUF file with only vocab data and metadata
+  - `MTP` : GGUF file contains Multi-Token Prediction heads (a speculative-decoding draft module), intended to be loaded alongside a base model of matching architecture and version
 1. **Shard**: (Optional) Indicates and denotes that the model has been split into multiple shards, formatted as `<ShardNum>-of-<ShardTotal>`.
     - *ShardNum* : Shard position in this model. Must be 5 digits padded by zeros.
       - Shard number always starts from `00001` onwards (e.g. First shard always starts at `00001-of-XXXXX` rather than `00000-of-XXXXX`).
@@ -54,7 +55,7 @@ The components are:
 
 At a minimum all model files should have at least BaseName, SizeLabel, Version, in order to be easily validated as a file that is keeping with the GGUF Naming Convention. An example of this issue is that it is easy for Encoding to be mistaken as a FineTune if Version is omitted.
 
-To validate you can use this regular expression `^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab)[\w_]+))?(?:-(?<Type>LoRA|vocab))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$` which will check that you got the minimum BaseName, SizeLabel and Version present in the correct order.
+To validate you can use this regular expression `^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab|MTP)[\w_]+))?(?:-(?<Type>LoRA|vocab|MTP))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$` which will check that you got the minimum BaseName, SizeLabel and Version present in the correct order.
 
 For example:
 
@@ -81,12 +82,20 @@ For example:
     - Weight Encoding Scheme: Q4_0
     - Shard: 3 out of 9 total shards
 
+  * `Qwen3-27B-v1.0-Q4_K_M-MTP.gguf`
+    - Model Name: Qwen3
+    - Expert Count: 0
+    - Parameter Count: 27B
+    - Version Number: v1.0
+    - Weight Encoding Scheme: Q4_K_M
+    - Type: MTP (Multi-Token Prediction draft module)
+
 
 <details><summary>Example Node.js Regex Function</summary>
 
 ```js
 #!/usr/bin/env node
-const ggufRegex = /^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab)[\w_]+))?(?:-(?<Type>LoRA|vocab))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$/;
+const ggufRegex = /^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab|MTP)[\w_]+))?(?:-(?<Type>LoRA|vocab|MTP))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$/;
 
 function parseGGUFFilename(filename) {
   const match = ggufRegex.exec(filename);
@@ -101,6 +110,7 @@ const testCases = [
   {filename: 'Grok-100B-v1.0-Q4_0-00003-of-00009.gguf',            expected: { BaseName: 'Grok',                 SizeLabel: '100B',     FineTune: null, Version: 'v1.0',   Encoding: 'Q4_0', Type: null, Shard: "00003-of-00009"}},
   {filename: 'Hermes-2-Pro-Llama-3-8B-v1.0-F16.gguf',              expected: { BaseName: 'Hermes-2-Pro-Llama-3', SizeLabel: '8B', FineTune: null, Version: 'v1.0',   Encoding: 'F16',  Type: null, Shard: null}},
   {filename: 'Phi-3-mini-3.8B-ContextLength4k-instruct-v1.0.gguf', expected: { BaseName: 'Phi-3-mini',   SizeLabel: '3.8B-ContextLength4k', FineTune: 'instruct', Version: 'v1.0',   Encoding: null,  Type: null, Shard: null}},
+  {filename: 'Qwen3-27B-v1.0-Q4_K_M-MTP.gguf',                     expected: { BaseName: 'Qwen3',                SizeLabel: '27B',      FineTune: null, Version: 'v1.0',   Encoding: 'Q4_K_M', Type: 'MTP', Shard: null}},
   {filename: 'not-a-known-arrangement.gguf',                       expected: null},
 ];
 
