@@ -7863,6 +7863,274 @@ void ggml_compute_forward_pad_reflect_1d(
     }
 }
 
+// ggml_compute_forward_supertonic_depthwise_1d
+
+void ggml_compute_forward_supertonic_depthwise_1d(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+
+    const ggml_tensor * x    = dst->src[0]; // [L, C, 1, 1]
+    const ggml_tensor * w    = dst->src[1]; // [K, 1, C, 1]
+    const ggml_tensor * bias = dst->src[2]; // [C] or NULL
+
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(w->type == GGML_TYPE_F32);
+    GGML_ASSERT(bias == NULL || bias->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+    const int32_t * opts = (const int32_t *) dst->op_params;
+    const int K        = opts[0];
+    const int dilation = opts[1];
+    const int32_t layout = opts[2];
+    const int32_t causal = opts[3];
+    const int k_off = (causal != 0) ? -(K - 1) : -(K / 2);
+
+    int L, C, sxt, sxc, syt, syc;
+    if (layout == 0) {
+        L = (int) x->ne[0];
+        C = (int) x->ne[1];
+        sxt = 1;  sxc = L;
+        syt = 1;  syc = L;
+    } else {
+        C = (int) x->ne[0];
+        L = (int) x->ne[1];
+        sxt = C;  sxc = 1;
+        syt = C;  syc = 1;
+    }
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const float * x_data = (const float *) x->data;
+    const float * w_data = (const float *) w->data;
+    const float * b_data = bias ? (const float *) bias->data : NULL;
+          float * y_data = (float *) dst->data;
+
+    for (int c = ith; c < C; c += nth) {
+        const float bias_v = b_data ? b_data[c] : 0.0f;
+        const float * w_c = w_data + (size_t) c * K;
+        for (int t = 0; t < L; ++t) {
+            float sum = bias_v;
+            for (int k = 0; k < K; ++k) {
+                int s = t + (k + k_off) * dilation;
+                if (s < 0) s = 0;
+                else if (s >= L) s = L - 1;
+                sum += x_data[(size_t) s * sxt + (size_t) c * sxc] * w_c[k];
+            }
+            y_data[(size_t) t * syt + (size_t) c * syc] = sum;
+        }
+    }
+}
+
+// ggml_compute_forward_supertonic_layer_norm_channel
+
+void ggml_compute_forward_supertonic_layer_norm_channel(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+
+    const ggml_tensor * x = dst->src[0]; // [L, C, 1, 1]
+    const ggml_tensor * g = dst->src[1]; // [C]
+    const ggml_tensor * b = dst->src[2]; // [C]
+
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(g->type == GGML_TYPE_F32);
+    GGML_ASSERT(b->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+    float eps;
+    memcpy(&eps, dst->op_params, sizeof(eps));
+    const int32_t layout = ((const int32_t *) dst->op_params)[1];
+
+    int L, C, sxt, sxc, syt, syc;
+    if (layout == 0) {
+        // [T, C]: T inner.
+        L = (int) x->ne[0];
+        C = (int) x->ne[1];
+        sxt = 1;  sxc = L;
+        syt = 1;  syc = L;
+    } else {
+        // [C, T]: C inner.
+        C = (int) x->ne[0];
+        L = (int) x->ne[1];
+        sxt = C;  sxc = 1;
+        syt = C;  syc = 1;
+    }
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const float * x_data = (const float *) x->data;
+    const float * g_data = (const float *) g->data;
+    const float * b_data = (const float *) b->data;
+          float * y_data = (float *) dst->data;
+
+    // Layout-agnostic indexing via element strides.
+    for (int t = ith; t < L; t += nth) {
+        double mean = 0.0;
+        for (int c = 0; c < C; ++c) mean += x_data[(size_t) t * sxt + (size_t) c * sxc];
+        mean /= (double) C;
+        double var = 0.0;
+        for (int c = 0; c < C; ++c) {
+            const double d = (double) x_data[(size_t) t * sxt + (size_t) c * sxc] - mean;
+            var += d * d;
+        }
+        const float inv = 1.0f / sqrtf((float) (var / (double) C) + eps);
+        for (int c = 0; c < C; ++c) {
+            const float xv = x_data[(size_t) t * sxt + (size_t) c * sxc];
+            y_data[(size_t) t * syt + (size_t) c * syc] = (xv - (float) mean) * inv * g_data[c] + b_data[c];
+        }
+    }
+}
+
+// ggml_compute_forward_supertonic_pw2_residual
+
+void ggml_compute_forward_supertonic_pw2_residual(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+
+    const ggml_tensor * x        = dst->src[0]; // [L, C, 1, 1]
+    const ggml_tensor * bias     = dst->src[1]; // [C]
+    const ggml_tensor * gamma    = dst->src[2]; // [C]
+    const ggml_tensor * residual = dst->src[3]; // [L, C, 1, 1]
+
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(bias->type == GGML_TYPE_F32);
+    GGML_ASSERT(gamma->type == GGML_TYPE_F32);
+    GGML_ASSERT(residual->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+    const int32_t layout = ((const int32_t *) dst->op_params)[0];
+
+    int L, C, sxt, sxc, syt, syc, srt, src;
+    if (layout == 0) {
+        L = (int) x->ne[0];
+        C = (int) x->ne[1];
+        sxt = 1;  sxc = L;
+        syt = 1;  syc = L;
+        srt = 1;  src = L;
+    } else {
+        C = (int) x->ne[0];
+        L = (int) x->ne[1];
+        sxt = C;  sxc = 1;
+        syt = C;  syc = 1;
+        srt = C;  src = 1;
+    }
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const float * x_data   = (const float *) x->data;
+    const float * b_data   = (const float *) bias->data;
+    const float * g_data   = (const float *) gamma->data;
+    const float * r_data   = (const float *) residual->data;
+          float * y_data   = (float *) dst->data;
+
+    // Stripe over channels.  For each channel c, bias and gamma are read
+    // once and applied across all L timesteps; layout flag flips x/y/r index
+    // strides between [T, C] and [C, T].
+    for (int c = ith; c < C; c += nth) {
+        const float bv = b_data[c];
+        const float gv = g_data[c];
+        for (int t = 0; t < L; ++t) {
+            const float xv = x_data[(size_t) t * sxt + (size_t) c * sxc];
+            const float rv = r_data[(size_t) t * srt + (size_t) c * src];
+            y_data[(size_t) t * syt + (size_t) c * syc] = rv + (xv + bv) * gv;
+        }
+    }
+}
+
+// ggml_compute_forward_supertonic_bias_gelu
+
+void ggml_compute_forward_supertonic_bias_gelu(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+
+    const ggml_tensor * x    = dst->src[0]; // [L, C, 1, 1]
+    const ggml_tensor * bias = dst->src[1]; // [C]
+
+    GGML_ASSERT(x->type    == GGML_TYPE_F32);
+    GGML_ASSERT(bias->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type  == GGML_TYPE_F32);
+
+    const int32_t layout = ((const int32_t *) dst->op_params)[0];
+
+    int L, C, sxt, sxc, syt, syc;
+    if (layout == 0) {
+        L = (int) x->ne[0];
+        C = (int) x->ne[1];
+        sxt = 1;  sxc = L;
+        syt = 1;  syc = L;
+    } else {
+        C = (int) x->ne[0];
+        L = (int) x->ne[1];
+        sxt = C;  sxc = 1;
+        syt = C;  syc = 1;
+    }
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const float * x_data = (const float *) x->data;
+    const float * b_data = (const float *) bias->data;
+          float * y_data = (float *)       dst->data;
+
+    static const float inv_sqrt_2 = 0.7071067811865475f;
+
+    for (int c = ith; c < C; c += nth) {
+        const float bv = b_data[c];
+        for (int t = 0; t < L; ++t) {
+            const float v = x_data[(size_t) t * sxt + (size_t) c * sxc] + bv;
+            y_data[(size_t) t * syt + (size_t) c * syc] = 0.5f * v * (1.0f + erff(v * inv_sqrt_2));
+        }
+    }
+}
+
+// ggml_compute_forward_supertonic_edge_pad_1d
+
+void ggml_compute_forward_supertonic_edge_pad_1d(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+
+    const ggml_tensor * x = dst->src[0]; // [L_in, C, 1, 1] or [C, L_in, 1, 1]
+
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+    const int pad_left = ggml_get_op_params_i32(dst, 0);
+    const int32_t layout = ggml_get_op_params_i32(dst, 2);
+
+    int L_in, L_out, C, sxt, sxc, syt, syc;
+    if (layout == 0) {
+        L_in  = (int) x->ne[0];
+        C     = (int) x->ne[1];
+        L_out = (int) dst->ne[0];
+        sxt = 1;     sxc = L_in;   syt = 1;     syc = L_out;
+    } else {
+        C     = (int) x->ne[0];
+        L_in  = (int) x->ne[1];
+        L_out = (int) dst->ne[1];
+        sxt = C;     sxc = 1;      syt = C;     syc = 1;
+    }
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const float * x_data = (const float *) x->data;
+          float * y_data = (float *)       dst->data;
+
+    // Stripe over channels.  For each output time t, read from
+    // clamp(t - pad_left, 0, L_in - 1); layout flag picks strides.
+    for (int c = ith; c < C; c += nth) {
+        for (int t = 0; t < L_out; ++t) {
+            int src_t = t - pad_left;
+            if (src_t < 0)       src_t = 0;
+            if (src_t >= L_in)   src_t = L_in - 1;
+            y_data[(size_t) t * syt + (size_t) c * syc] =
+                x_data[(size_t) src_t * sxt + (size_t) c * sxc];
+        }
+    }
+}
+
 // ggml_compute_forward_roll
 
 static int64_t ggml_wrap_index(int64_t i, int64_t ne) {

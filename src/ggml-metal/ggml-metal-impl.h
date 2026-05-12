@@ -1028,6 +1028,62 @@ typedef struct {
 } ggml_metal_kargs_pad_reflect_1d;
 
 typedef struct {
+    int32_t L;
+    int32_t C;
+    int32_t K;
+    int32_t dilation;
+    int32_t has_bias;
+    int32_t causal;   // 0 = symmetric edge-clamp (vector_estimator), 1 = causal-left (vocoder)
+    int32_t sxt;
+    int32_t sxc;
+    int32_t syt;
+    int32_t syc;
+} ggml_metal_kargs_supertonic_depthwise_1d;
+
+typedef struct {
+    int32_t L;
+    int32_t C;
+    float   eps;
+    // Per-axis element strides for x and y.  Lets the same kernel handle
+    // both [T, C] (sxt=1, sxc=L) and [C, T] (sxt=C, sxc=1) layouts.
+    int32_t sxt;  // x stride per time step (in elements)
+    int32_t sxc;  // x stride per channel  (in elements)
+    int32_t syt;  // y stride per time step (in elements)
+    int32_t syc;  // y stride per channel  (in elements)
+} ggml_metal_kargs_supertonic_layer_norm_channel;
+
+typedef struct {
+    int32_t L;
+    int32_t C;
+    int32_t sxt;
+    int32_t sxc;
+    int32_t syt;
+    int32_t syc;
+    int32_t srt;
+    int32_t src;
+} ggml_metal_kargs_supertonic_pw2_residual;
+
+typedef struct {
+    int32_t L;
+    int32_t C;
+    int32_t sxt;
+    int32_t sxc;
+    int32_t syt;
+    int32_t syc;
+} ggml_metal_kargs_supertonic_bias_gelu;
+
+typedef struct {
+    int32_t L_in;
+    int32_t L_out;
+    int32_t C;
+    int32_t pad_left;
+    int32_t sxt;
+    int32_t sxc;
+    int32_t syt;
+    int32_t syc;
+} ggml_metal_kargs_supertonic_edge_pad_1d;
+
+typedef struct {
     uint64_t nb1;
     int      dim;
     int      max_period;

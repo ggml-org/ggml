@@ -577,6 +577,17 @@ extern "C" {
 
         GGML_OP_GLU,
 
+        // Supertonic-specific fused ops (QVAC overlay).  These collapse
+        // multi-op sub-graphs that the Supertonic ggml port emits per
+        // ConvNeXt block / attention block, reducing per-step Metal
+        // command-buffer encode overhead.  See
+        // tts-cpp/cmake/vcpkg-overlay-ports/ggml/ggml-supertonic-ops.patch.
+        GGML_OP_SUPERTONIC_DEPTHWISE_1D,
+        GGML_OP_SUPERTONIC_LAYER_NORM_CHANNEL,
+        GGML_OP_SUPERTONIC_PW2_RESIDUAL,
+        GGML_OP_SUPERTONIC_BIAS_GELU,
+        GGML_OP_SUPERTONIC_EDGE_PAD_1D,
+
         GGML_OP_COUNT,
     };
 
@@ -2251,6 +2262,138 @@ extern "C" {
             struct ggml_tensor  * a,
             int                   p0,
             int                   p1);
+
+    // Supertonic fused depthwise 1D convolution with edge-clamp (replicate)
+    // padding and bias add.  Per-channel filter of width K applied to the
+    // time dim of a (ne0 = L, ne1 = C, ne2 = 1, ne3 = 1).
+    //   y[t, c] = bias[c]
+    //           + sum_{k=0..K-1} a[clamp(t + (k - K/2)*dilation, 0, L-1), c]
+    //                          * w[k, c]
+    //
+    // a:    [L, C]  f32 contiguous
+    // w:    [K, C]  f32 contiguous (or [K, 1, C, 1] from a depthwise conv weight)
+    // bias: [C]     f32 contiguous (may be NULL — pass GGML_NULL_TENSOR to skip)
+    // dilation: positive integer
+    //
+    // Output ne=[L, C] matching a's shape.  Currently supports K in {3, 5}.
+    GGML_API struct ggml_tensor * ggml_supertonic_depthwise_1d(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * w,
+            struct ggml_tensor  * bias,
+            int                   dilation);
+
+    // [C, T]-layout variant: a is [C, L, 1, 1] with C inner-most.  Same kernel,
+    // strides flipped via a layout flag in op_params.  Full B2 path.
+    GGML_API struct ggml_tensor * ggml_supertonic_depthwise_1d_ct(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * w,
+            struct ggml_tensor  * bias,
+            int                   dilation);
+
+    // [C, T]-layout + causal-left padding variant.  Used by the vocoder
+    // ConvNeXt chain.  K may be 3, 5, or 7.
+    GGML_API struct ggml_tensor * ggml_supertonic_depthwise_1d_causal_ct(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * w,
+            struct ggml_tensor  * bias,
+            int                   dilation);
+
+    // Supertonic fused channel-axis layer norm.  Normalises across the
+    // channel dim (ne[1]) of a [L, C, 1, 1] tensor and applies an affine
+    // scale + shift, all in one Metal dispatch.  Replaces the
+    // permute + cont + ggml_norm + mul + add + permute + cont chain that
+    // stock ggml_norm requires (since it normalises along ne[0]).
+    //
+    //   y[t, c] = ((a[t, c] - mean_t) / sqrt(var_t + eps)) * g[c] + b[c]
+    //
+    // a: [L, C, 1, 1]  f32 contiguous
+    // g: [C]           f32 contiguous (scale)
+    // b: [C]           f32 contiguous (shift)
+    // eps: numerical epsilon (passed as float op param)
+    GGML_API struct ggml_tensor * ggml_supertonic_layer_norm_channel(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * g,
+            struct ggml_tensor  * b,
+            float                 eps);
+
+    // [C, T]-layout variant: a is [C, T, 1, 1] with C inner-most.  g and b
+    // still have length C (== a->ne[0] here, vs == a->ne[1] in the [T, C]
+    // variant).  Same op + Metal kernel under the hood — the kernel reads
+    // per-axis strides from kargs, so this variant just sets a layout
+    // flag so the dispatch passes the right strides.  Phase B2 path.
+    GGML_API struct ggml_tensor * ggml_supertonic_layer_norm_channel_ct(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            struct ggml_tensor  * g,
+            struct ggml_tensor  * b,
+            float                 eps);
+
+    // Supertonic fused (x + bias) * gamma + residual.  Channel-axis
+    // broadcasts for `bias` and `gamma` (both [C]); `x` and `residual`
+    // are [L, C, 1, 1] f32 contiguous.  Output ne matches `x`.
+    //
+    //   y[t, c] = residual[t, c] + (x[t, c] + bias[c]) * gamma[c]
+    GGML_API struct ggml_tensor * ggml_supertonic_pw2_residual(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * x,
+            struct ggml_tensor  * bias,
+            struct ggml_tensor  * gamma,
+            struct ggml_tensor  * residual);
+
+    // [C, T]-layout variant.  Bias/gamma still have length C (== x->ne[0]
+    // here, vs == x->ne[1] in the [T, C] variant).  Full B2 path.
+    GGML_API struct ggml_tensor * ggml_supertonic_pw2_residual_ct(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * x,
+            struct ggml_tensor  * bias,
+            struct ggml_tensor  * gamma,
+            struct ggml_tensor  * residual);
+
+    // Supertonic fused bias-add + GELU (erf form, the gelu_erf in ggml).
+    // Channel-axis broadcasts for `bias` ([C]); `x` is [L, C, 1, 1] f32
+    // contiguous.  Output ne matches `x`.
+    //
+    //   y[t, c] = gelu_erf(x[t, c] + bias[c])
+    //           = 0.5 * v * (1 + erf(v * 1/sqrt(2)))  where v = x + bias
+    GGML_API struct ggml_tensor * ggml_supertonic_bias_gelu(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * x,
+            struct ggml_tensor  * bias);
+
+    // [C, T]-layout variant.  Bias still has length C (== x->ne[0] here).
+    GGML_API struct ggml_tensor * ggml_supertonic_bias_gelu_ct(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * x,
+            struct ggml_tensor  * bias);
+
+    // Supertonic edge-replicate padding for 1D conv inputs.  Combines
+    // the view + repeat_4d + concat sequence used by vocoder's causal
+    // padding (pad_left only) and vector_estimator / text_encoder's
+    // symmetric edge_clamp padding (pad_left + pad_right) into one
+    // dispatch.  Input `x` is `[L_in, C, 1, 1]` f32 contiguous; the
+    // output has `ne = [L_in + pad_left + pad_right, C, 1, 1]` where:
+    //
+    //   y[t, c] = x[clamp(t - pad_left, 0, L_in - 1), c]
+    //
+    // (Replicate / edge-clamp semantics — the leftmost row of `x` fills
+    // the left pad, the rightmost row fills the right pad.)
+    GGML_API struct ggml_tensor * ggml_supertonic_edge_pad_1d(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * x,
+            int                   pad_left,
+            int                   pad_right);
+
+    // [C, T]-layout variant.  Input x is [C, L_in, 1, 1]; output is
+    // [C, L_in + pad_left + pad_right, 1, 1].  Full B2 path.
+    GGML_API struct ggml_tensor * ggml_supertonic_edge_pad_1d_ct(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * x,
+            int                   pad_left,
+            int                   pad_right);
 
     // Move tensor elements by an offset given for each dimension. Elements that
     // are shifted beyond the last position are wrapped around to the beginning.
