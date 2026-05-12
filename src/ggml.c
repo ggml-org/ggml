@@ -1063,9 +1063,15 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "OPT_STEP_SGD",
 
     "GLU",
+
+    "SUPERTONIC_DEPTHWISE_1D",
+    "SUPERTONIC_LAYER_NORM_CHANNEL",
+    "SUPERTONIC_PW2_RESIDUAL",
+    "SUPERTONIC_BIAS_GELU",
+    "SUPERTONIC_EDGE_PAD_1D",
 };
 
-static_assert(GGML_OP_COUNT == 96, "GGML_OP_COUNT != 96");
+static_assert(GGML_OP_COUNT == 101, "GGML_OP_COUNT != 101");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1173,9 +1179,15 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "sgd(x)",
 
     "glu(x)",
+
+    "supertonic_depthwise_1d(x,w,b)",
+    "supertonic_layer_norm_channel(x,g,b)",
+    "supertonic_pw2_residual(x,b,gamma,res)",
+    "supertonic_bias_gelu(x,b)",
+    "supertonic_edge_pad_1d(x,pad_l,pad_r)",
 };
 
-static_assert(GGML_OP_COUNT == 96, "GGML_OP_COUNT != 96");
+static_assert(GGML_OP_COUNT == 101, "GGML_OP_COUNT != 101");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -5121,6 +5133,295 @@ struct ggml_tensor * ggml_pad_reflect_1d(
     result->src[0] = a;
 
     return result;
+}
+
+// ggml_supertonic_depthwise_1d
+
+// Internal helper: depthwise_1d with explicit layout + causal flags.
+// layout = 0 → [T, C] (T inner) ; layout = 1 → [C, T] (C inner).
+// causal = 0 → symmetric edge-clamp (vector_estimator);
+// causal = 1 → causal-left padding (vocoder).
+static struct ggml_tensor * ggml_supertonic_depthwise_1d_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * w,
+        struct ggml_tensor  * bias,
+        int                   dilation,
+        int                   layout,
+        int                   causal) {
+    GGML_ASSERT(a->type == GGML_TYPE_F32);
+    GGML_ASSERT(w->type == GGML_TYPE_F32);
+    GGML_ASSERT(bias == NULL || bias->type == GGML_TYPE_F32);
+    GGML_ASSERT(ggml_is_contiguous(a));
+    GGML_ASSERT(ggml_is_contiguous(w));
+    GGML_ASSERT(bias == NULL || ggml_is_contiguous(bias));
+    GGML_ASSERT(dilation >= 1);
+
+    // a: [L, C, 1, 1] (layout=0) or [C, L, 1, 1] (layout=1).
+    // w in conv kernel layout [K, 1, C, 1] (ggml_im2col-consumable),
+    // K in {3, 5, 7} (3/5 for vector_estimator symmetric, 7 for vocoder causal).
+    // bias: [C].
+    const int K = (int) w->ne[0];
+    GGML_ASSERT(K == 3 || K == 5 || K == 7);
+    GGML_ASSERT(w->ne[1] == 1);
+    const int64_t C_dim = (layout == 0) ? a->ne[1] : a->ne[0];
+    GGML_ASSERT(w->ne[2] == C_dim);
+    GGML_ASSERT(bias == NULL || bias->ne[0] == C_dim);
+
+    struct ggml_tensor * result = ggml_new_tensor_4d(ctx, a->type,
+            a->ne[0], a->ne[1], a->ne[2], a->ne[3]);
+
+    int32_t params[4] = { K, dilation, layout, causal };
+    ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = GGML_OP_SUPERTONIC_DEPTHWISE_1D;
+    result->src[0] = a;
+    result->src[1] = w;
+    result->src[2] = bias;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_supertonic_depthwise_1d(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * w,
+        struct ggml_tensor  * bias,
+        int                   dilation) {
+    return ggml_supertonic_depthwise_1d_impl(ctx, a, w, bias, dilation,
+                                             /*layout=*/0, /*causal=*/0);
+}
+
+struct ggml_tensor * ggml_supertonic_depthwise_1d_ct(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * w,
+        struct ggml_tensor  * bias,
+        int                   dilation) {
+    return ggml_supertonic_depthwise_1d_impl(ctx, a, w, bias, dilation,
+                                             /*layout=*/1, /*causal=*/0);
+}
+
+struct ggml_tensor * ggml_supertonic_depthwise_1d_causal_ct(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * w,
+        struct ggml_tensor  * bias,
+        int                   dilation) {
+    return ggml_supertonic_depthwise_1d_impl(ctx, a, w, bias, dilation,
+                                             /*layout=*/1, /*causal=*/1);
+}
+
+// ggml_supertonic_layer_norm_channel
+
+// Internal helper: layer_norm_channel with explicit layout flag.
+// layout = 0 → [T, C] (T inner) ; layout = 1 → [C, T] (C inner).
+static struct ggml_tensor * ggml_supertonic_layer_norm_channel_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * g,
+        struct ggml_tensor  * b,
+        float                 eps,
+        int                   layout) {
+    GGML_ASSERT(a->type == GGML_TYPE_F32);
+    GGML_ASSERT(g->type == GGML_TYPE_F32);
+    GGML_ASSERT(b->type == GGML_TYPE_F32);
+    GGML_ASSERT(ggml_is_contiguous(a));
+    GGML_ASSERT(ggml_is_contiguous(g));
+    GGML_ASSERT(ggml_is_contiguous(b));
+
+    GGML_ASSERT(a->ne[2] == 1 && a->ne[3] == 1);
+    // The "channel" dimension is the OUTER one for [T, C] (ne[1]) and the
+    // INNER one for [C, T] (ne[0]).  gamma/beta have length == C.
+    const int64_t C_dim = (layout == 0) ? a->ne[1] : a->ne[0];
+    GGML_ASSERT(g->ne[0] == C_dim);
+    GGML_ASSERT(b->ne[0] == C_dim);
+
+    struct ggml_tensor * result = ggml_new_tensor_4d(ctx, a->type,
+            a->ne[0], a->ne[1], a->ne[2], a->ne[3]);
+
+    // op_params: [eps (f32), layout (i32)].
+    float params[2];
+    memcpy(&params[0], &eps, sizeof(float));
+    ((int32_t *) &params[1])[0] = layout;
+    ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = GGML_OP_SUPERTONIC_LAYER_NORM_CHANNEL;
+    result->src[0] = a;
+    result->src[1] = g;
+    result->src[2] = b;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_supertonic_layer_norm_channel(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * g,
+        struct ggml_tensor  * b,
+        float                 eps) {
+    return ggml_supertonic_layer_norm_channel_impl(ctx, a, g, b, eps, /*layout=*/0);
+}
+
+struct ggml_tensor * ggml_supertonic_layer_norm_channel_ct(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * g,
+        struct ggml_tensor  * b,
+        float                 eps) {
+    return ggml_supertonic_layer_norm_channel_impl(ctx, a, g, b, eps, /*layout=*/1);
+}
+
+// ggml_supertonic_pw2_residual
+
+static struct ggml_tensor * ggml_supertonic_pw2_residual_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * x,
+        struct ggml_tensor  * bias,
+        struct ggml_tensor  * gamma,
+        struct ggml_tensor  * residual,
+        int                   layout) {
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(bias->type == GGML_TYPE_F32);
+    GGML_ASSERT(gamma->type == GGML_TYPE_F32);
+    GGML_ASSERT(residual->type == GGML_TYPE_F32);
+    GGML_ASSERT(ggml_is_contiguous(x));
+    GGML_ASSERT(ggml_is_contiguous(bias));
+    GGML_ASSERT(ggml_is_contiguous(gamma));
+    GGML_ASSERT(ggml_is_contiguous(residual));
+    GGML_ASSERT(x->ne[2] == 1 && x->ne[3] == 1);
+    GGML_ASSERT(residual->ne[0] == x->ne[0]);
+    GGML_ASSERT(residual->ne[1] == x->ne[1]);
+    const int64_t C_dim = (layout == 0) ? x->ne[1] : x->ne[0];
+    GGML_ASSERT(bias->ne[0] == C_dim);
+    GGML_ASSERT(gamma->ne[0] == C_dim);
+
+    struct ggml_tensor * result = ggml_new_tensor_4d(ctx, x->type,
+            x->ne[0], x->ne[1], x->ne[2], x->ne[3]);
+
+    int32_t params[1] = { layout };
+    ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = GGML_OP_SUPERTONIC_PW2_RESIDUAL;
+    result->src[0] = x;
+    result->src[1] = bias;
+    result->src[2] = gamma;
+    result->src[3] = residual;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_supertonic_pw2_residual(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * x,
+        struct ggml_tensor  * bias,
+        struct ggml_tensor  * gamma,
+        struct ggml_tensor  * residual) {
+    return ggml_supertonic_pw2_residual_impl(ctx, x, bias, gamma, residual, /*layout=*/0);
+}
+
+struct ggml_tensor * ggml_supertonic_pw2_residual_ct(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * x,
+        struct ggml_tensor  * bias,
+        struct ggml_tensor  * gamma,
+        struct ggml_tensor  * residual) {
+    return ggml_supertonic_pw2_residual_impl(ctx, x, bias, gamma, residual, /*layout=*/1);
+}
+
+// ggml_supertonic_bias_gelu
+
+static struct ggml_tensor * ggml_supertonic_bias_gelu_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * x,
+        struct ggml_tensor  * bias,
+        int                   layout) {
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(bias->type == GGML_TYPE_F32);
+    GGML_ASSERT(ggml_is_contiguous(x));
+    GGML_ASSERT(ggml_is_contiguous(bias));
+    GGML_ASSERT(x->ne[2] == 1 && x->ne[3] == 1);
+    const int64_t C_dim = (layout == 0) ? x->ne[1] : x->ne[0];
+    GGML_ASSERT(bias->ne[0] == C_dim);
+
+    struct ggml_tensor * result = ggml_new_tensor_4d(ctx, x->type,
+            x->ne[0], x->ne[1], x->ne[2], x->ne[3]);
+
+    int32_t params[1] = { layout };
+    ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = GGML_OP_SUPERTONIC_BIAS_GELU;
+    result->src[0] = x;
+    result->src[1] = bias;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_supertonic_bias_gelu(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * x,
+        struct ggml_tensor  * bias) {
+    return ggml_supertonic_bias_gelu_impl(ctx, x, bias, /*layout=*/0);
+}
+
+struct ggml_tensor * ggml_supertonic_bias_gelu_ct(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * x,
+        struct ggml_tensor  * bias) {
+    return ggml_supertonic_bias_gelu_impl(ctx, x, bias, /*layout=*/1);
+}
+
+// ggml_supertonic_edge_pad_1d
+
+static struct ggml_tensor * ggml_supertonic_edge_pad_1d_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * x,
+        int                   pad_left,
+        int                   pad_right,
+        int                   layout) {
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(ggml_is_contiguous(x));
+    GGML_ASSERT(x->ne[2] == 1 && x->ne[3] == 1);
+    GGML_ASSERT(pad_left >= 0 && pad_right >= 0);
+
+    int64_t out_ne0, out_ne1;
+    if (layout == 0) {
+        const int64_t L_in = x->ne[0];
+        const int64_t C    = x->ne[1];
+        out_ne0 = L_in + pad_left + pad_right;
+        out_ne1 = C;
+    } else {
+        const int64_t C    = x->ne[0];
+        const int64_t L_in = x->ne[1];
+        out_ne0 = C;
+        out_ne1 = L_in + pad_left + pad_right;
+    }
+    struct ggml_tensor * result = ggml_new_tensor_4d(ctx, x->type,
+            out_ne0, out_ne1, x->ne[2], x->ne[3]);
+
+    int32_t params[3] = { pad_left, pad_right, layout };
+    ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = GGML_OP_SUPERTONIC_EDGE_PAD_1D;
+    result->src[0] = x;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_supertonic_edge_pad_1d(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * x,
+        int                   pad_left,
+        int                   pad_right) {
+    return ggml_supertonic_edge_pad_1d_impl(ctx, x, pad_left, pad_right, /*layout=*/0);
+}
+
+struct ggml_tensor * ggml_supertonic_edge_pad_1d_ct(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * x,
+        int                   pad_left,
+        int                   pad_right) {
+    return ggml_supertonic_edge_pad_1d_impl(ctx, x, pad_left, pad_right, /*layout=*/1);
 }
 
 // ggml_roll

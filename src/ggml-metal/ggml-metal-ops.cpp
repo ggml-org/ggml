@@ -411,6 +411,26 @@ static int ggml_metal_op_encode_impl(ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = ggml_metal_op_pad_reflect_1d(ctx, idx);
             } break;
+        case GGML_OP_SUPERTONIC_DEPTHWISE_1D:
+            {
+                n_fuse = ggml_metal_op_supertonic_depthwise_1d(ctx, idx);
+            } break;
+        case GGML_OP_SUPERTONIC_LAYER_NORM_CHANNEL:
+            {
+                n_fuse = ggml_metal_op_supertonic_layer_norm_channel(ctx, idx);
+            } break;
+        case GGML_OP_SUPERTONIC_PW2_RESIDUAL:
+            {
+                n_fuse = ggml_metal_op_supertonic_pw2_residual(ctx, idx);
+            } break;
+        case GGML_OP_SUPERTONIC_BIAS_GELU:
+            {
+                n_fuse = ggml_metal_op_supertonic_bias_gelu(ctx, idx);
+            } break;
+        case GGML_OP_SUPERTONIC_EDGE_PAD_1D:
+            {
+                n_fuse = ggml_metal_op_supertonic_edge_pad_1d(ctx, idx);
+            } break;
         case GGML_OP_DIAG_MASK_INF:
             {
                 n_fuse = ggml_metal_op_diag_mask_inf(ctx, idx);
@@ -4183,6 +4203,285 @@ int ggml_metal_op_diag_mask_inf(ggml_metal_op_t ctx, int idx) {
 
     return 1;
 }
+int ggml_metal_op_supertonic_depthwise_1d(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    GGML_TENSOR_LOCALS( int32_t, ne, op, ne);
+
+    const int32_t * opts = (const int32_t *) op->op_params;
+    const int K        = opts[0];
+    const int dilation = opts[1];
+    // opts[2]: layout flag (0 = [T, C] default, 1 = [C, T] for full B2).
+    // opts[3]: causal flag (0 = symmetric edge-clamp, 1 = causal-left pad).
+    const int32_t layout = opts[2];
+    const int32_t causal = opts[3];
+
+    int L, C, sxt, sxc, syt, syc;
+    if (layout == 0) {
+        L = ne0; C = ne1;
+        sxt = 1; sxc = L; syt = 1; syc = L;
+    } else {
+        C = ne0; L = ne1;
+        sxt = C; sxc = 1; syt = C; syc = 1;
+    }
+
+    ggml_metal_kargs_supertonic_depthwise_1d args = {
+        /*.L        =*/ L,
+        /*.C        =*/ C,
+        /*.K        =*/ K,
+        /*.dilation =*/ dilation,
+        /*.has_bias =*/ (op->src[2] != nullptr) ? 1 : 0,
+        /*.causal   =*/ causal,
+        /*.sxt      =*/ sxt,
+        /*.sxc      =*/ sxc,
+        /*.syt      =*/ syt,
+        /*.syc      =*/ syc,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_supertonic_depthwise_1d(lib, op);
+
+    // Cap threads-per-threadgroup at min(L, 1024).  One threadgroup per
+    // channel; threads stride over time.
+    int nth = L;
+    if (nth > 1024) nth = 1024;
+    if (nth < 1)    nth = 1;
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1); // x
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2); // w
+    if (op->src[2] != nullptr) {
+        ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op->src[2]), 3); // bias
+    } else {
+        // Bind src[0] as a harmless placeholder; the kernel won't read it.
+        ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op->src[0]), 3);
+    }
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         4); // y
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, C, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
+int ggml_metal_op_supertonic_layer_norm_channel(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    GGML_TENSOR_LOCALS(int32_t, ne, op, ne);
+
+    // op_params layout: [eps (f32), layout_flag (i32)].  layout_flag is
+    // 0 (default) for [T, C] activations (T inner-most, the historical
+    // contract), 1 for [C, T] (C inner-most — full B2 path).
+    float eps;
+    memcpy(&eps, op->op_params, sizeof(eps));
+    const int32_t layout = ((const int32_t *) op->op_params)[1];
+
+    int L, C;
+    int sxt, sxc, syt, syc;
+    if (layout == 0) {
+        // [T, C]: ne0 = T, ne1 = C.  T inner-most (stride 1), C outer (stride L).
+        L = ne0;
+        C = ne1;
+        sxt = 1;       sxc = L;
+        syt = 1;       syc = L;
+    } else {
+        // [C, T]: ne0 = C, ne1 = T.  C inner-most (stride 1), T outer (stride C).
+        C = ne0;
+        L = ne1;
+        sxt = C;       sxc = 1;
+        syt = C;       syc = 1;
+    }
+
+    ggml_metal_kargs_supertonic_layer_norm_channel args = {
+        /*.L   =*/ L,
+        /*.C   =*/ C,
+        /*.eps =*/ eps,
+        /*.sxt =*/ sxt,
+        /*.sxc =*/ sxc,
+        /*.syt =*/ syt,
+        /*.syc =*/ syc,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_supertonic_layer_norm_channel(lib, op);
+
+    // Threads-per-threadgroup: round up to a multiple of 32 (Apple GPU
+    // simdgroup size).  Cap at 256 to limit register pressure.
+    int nth = 32;
+    while (nth < C && nth < 256) nth *= 2;
+    if (nth > C) nth = ((C + 31) / 32) * 32;
+    if (nth > 256) nth = 256;
+    if (nth < 32) nth = 32;
+
+    // shared scratch: one float per simdgroup, max 8 simdgroups (256/32).
+    const size_t shared_bytes = 8 * sizeof(float);
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1); // x
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2); // g
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[2]), 3); // b
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         4); // y
+    ggml_metal_encoder_set_threadgroup_memory_size(enc, shared_bytes, 0);
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, L, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
+int ggml_metal_op_supertonic_pw2_residual(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    GGML_TENSOR_LOCALS(int32_t, ne, op, ne);
+
+    // op_params[0]: layout flag.  0 = [T, C] default, 1 = [C, T] (full B2).
+    const int32_t layout = ((const int32_t *) op->op_params)[0];
+
+    int L, C, sxt, sxc, syt, syc, srt, src;
+    if (layout == 0) {
+        L = ne0; C = ne1;
+        sxt = 1; sxc = L; syt = 1; syc = L; srt = 1; src = L;
+    } else {
+        C = ne0; L = ne1;
+        sxt = C; sxc = 1; syt = C; syc = 1; srt = C; src = 1;
+    }
+
+    ggml_metal_kargs_supertonic_pw2_residual args = {
+        /*.L   =*/ L,
+        /*.C   =*/ C,
+        /*.sxt =*/ sxt,
+        /*.sxc =*/ sxc,
+        /*.syt =*/ syt,
+        /*.syc =*/ syc,
+        /*.srt =*/ srt,
+        /*.src =*/ src,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_supertonic_pw2_residual(lib, op);
+
+    int nth = L;
+    if (nth > 256) nth = 256;
+    if (nth < 1)   nth = 1;
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1); // x
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2); // bias
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[2]), 3); // gamma
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[3]), 4); // residual
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         5); // y
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, C, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
+int ggml_metal_op_supertonic_bias_gelu(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    GGML_TENSOR_LOCALS(int32_t, ne, op, ne);
+
+    // op_params[0]: layout flag.  0 = [T, C] default, 1 = [C, T] (full B2).
+    const int32_t layout = ((const int32_t *) op->op_params)[0];
+
+    int L, C, sxt, sxc, syt, syc;
+    if (layout == 0) {
+        L = ne0; C = ne1;
+        sxt = 1; sxc = L; syt = 1; syc = L;
+    } else {
+        C = ne0; L = ne1;
+        sxt = C; sxc = 1; syt = C; syc = 1;
+    }
+
+    ggml_metal_kargs_supertonic_bias_gelu args = {
+        /*.L   =*/ L,
+        /*.C   =*/ C,
+        /*.sxt =*/ sxt,
+        /*.sxc =*/ sxc,
+        /*.syt =*/ syt,
+        /*.syc =*/ syc,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_supertonic_bias_gelu(lib, op);
+
+    int nth = L;
+    if (nth > 256) nth = 256;
+    if (nth < 1)   nth = 1;
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1); // x
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2); // bias
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         3); // y
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, C, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
+int ggml_metal_op_supertonic_edge_pad_1d(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    GGML_TENSOR_LOCALS(int32_t, ne, op, ne);
+
+    const int pad_left = ((const int32_t *) op->op_params)[0];
+    // opts[2]: layout flag (opts[1] = pad_right).  0 = [T, C], 1 = [C, T].
+    const int32_t layout = ((const int32_t *) op->op_params)[2];
+
+    int L_in, L_out, C, sxt, sxc, syt, syc;
+    if (layout == 0) {
+        L_in  = (int) op->src[0]->ne[0];
+        C     = (int) op->src[0]->ne[1];
+        L_out = ne0;
+        sxt = 1;     sxc = L_in;   syt = 1;     syc = L_out;
+    } else {
+        C     = (int) op->src[0]->ne[0];
+        L_in  = (int) op->src[0]->ne[1];
+        L_out = ne1;
+        sxt = C;     sxc = 1;      syt = C;     syc = 1;
+    }
+
+    ggml_metal_kargs_supertonic_edge_pad_1d args = {
+        /*.L_in     =*/ L_in,
+        /*.L_out    =*/ L_out,
+        /*.C        =*/ C,
+        /*.pad_left =*/ pad_left,
+        /*.sxt      =*/ sxt,
+        /*.sxc      =*/ sxc,
+        /*.syt      =*/ syt,
+        /*.syc      =*/ syc,
+    };
+
+    auto pipeline = ggml_metal_library_get_pipeline_supertonic_edge_pad_1d(lib, op);
+
+    int nth = L_out;
+    if (nth > 256) nth = 256;
+    if (nth < 1)   nth = 1;
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1); // x
+    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         2); // y
+
+    ggml_metal_encoder_dispatch_threadgroups(enc, C, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
+
 
 int ggml_metal_op_arange(ggml_metal_op_t ctx, int idx) {
     ggml_tensor * op = ctx->node(idx);

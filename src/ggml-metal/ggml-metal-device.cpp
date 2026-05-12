@@ -1856,6 +1856,40 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_pad_reflect_1d(g
     return res;
 }
 
+ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_supertonic_depthwise_1d(ggml_metal_library_t lib, const ggml_tensor * op) {
+    assert(op->op == GGML_OP_SUPERTONIC_DEPTHWISE_1D);
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_supertonic_depthwise_1d_%s", ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    return res;
+}
+
+ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_supertonic_layer_norm_channel(ggml_metal_library_t lib, const ggml_tensor * op) {
+    assert(op->op == GGML_OP_SUPERTONIC_LAYER_NORM_CHANNEL);
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_supertonic_layer_norm_channel_%s", ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    return res;
+}
+
 ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_diag_mask_inf(ggml_metal_library_t lib, const ggml_tensor * op) {
     assert(op->op == GGML_OP_DIAG_MASK_INF);
     GGML_UNUSED(op);
@@ -1865,6 +1899,57 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_diag_mask_inf(gg
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, base);
     if (!res.pipeline) {
         res = ggml_metal_library_compile_pipeline(lib, base, base, nullptr);
+    }
+
+    return res;
+}
+
+ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_supertonic_pw2_residual(ggml_metal_library_t lib, const ggml_tensor * op) {
+    assert(op->op == GGML_OP_SUPERTONIC_PW2_RESIDUAL);
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_supertonic_pw2_residual_%s", ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    return res;
+}
+
+ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_supertonic_bias_gelu(ggml_metal_library_t lib, const ggml_tensor * op) {
+    assert(op->op == GGML_OP_SUPERTONIC_BIAS_GELU);
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_supertonic_bias_gelu_%s", ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    return res;
+}
+
+ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_supertonic_edge_pad_1d(ggml_metal_library_t lib, const ggml_tensor * op) {
+    assert(op->op == GGML_OP_SUPERTONIC_EDGE_PAD_1D);
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_supertonic_edge_pad_1d_%s", ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
     }
 
     return res;
