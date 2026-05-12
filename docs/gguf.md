@@ -128,11 +128,6 @@ testCases.forEach(({ filename, expected }) => {
 </details>
 
 
-#### Note on MTP filename position (non-normative)
-
-Some early MTP releases place the `MTP` marker between `BaseName`/`SizeLabel` and `Encoding` (e.g. `Qwen3-27B-MTP-Q4_K_M.gguf`). The canonical position defined by this spec is the `Type` slot, after `Encoding`. Tooling should not depend on the pre-`Encoding` placement.
-
-
 ### File Structure
 
 ![image](https://github.com/ggerganov/ggml/assets/1991296/c3623641-3a1d-408e-bfaf-1b7c4e16aa63)
