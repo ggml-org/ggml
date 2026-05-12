@@ -128,12 +128,9 @@ testCases.forEach(({ filename, expected }) => {
 </details>
 
 
-#### Note on community variants (non-normative)
+#### Note on MTP filename position (non-normative)
 
-Some publishers use filename markers that are **not** part of this spec. Tooling should not depend on them:
-
-- **imatrix calibration.** `IQ*` quants do not imply that imatrix calibration was used during quantization. Some publishers prefix the `Encoding` with `i1-` (e.g. `DeepSeek-V3-v1.0-i1-IQ4_XS.gguf`) to mark imatrix-calibrated files; others ship a sidecar `imatrix*.dat` and leave the filename unchanged. Calibration provenance should be carried in GGUF metadata, not inferred from the filename.
-- **MTP placement.** Early MTP releases have placed the `MTP` marker between `BaseName`/`SizeLabel` and `Encoding` (e.g. `Qwen3-27B-MTP-Q4_K_M.gguf`). The canonical position defined by this spec is the `Type` slot, after `Encoding`.
+Some early MTP releases place the `MTP` marker between `BaseName`/`SizeLabel` and `Encoding` (e.g. `Qwen3-27B-MTP-Q4_K_M.gguf`). The canonical position defined by this spec is the `Type` slot, after `Encoding`. Tooling should not depend on the pre-`Encoding` placement.
 
 
 ### File Structure
