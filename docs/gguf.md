@@ -40,6 +40,7 @@ The components are:
     - If model is missing a version number then assume `v1.0` (First Public Release)
     - This can be derived from gguf metadata `general.version`
 1. **Encoding**: Indicates the weights encoding scheme that was applied to the model. Content, type mixture and arrangement however are determined by user code and can vary depending on project needs.
+   - For files where the byte distribution is genuinely mixed (e.g. asymmetric MoE quants where routed experts use a different ggml type than attention projections), the Encoding may instead be a hyphen-joined sequence of `<pct><quant>` tokens listed in descending order of byte share, where `<pct>` is a 1–3 digit percentage and `<quant>` is a ggml tensor type name (e.g. `IQ2_XXS`, `Q2_K`, `Q4_K`, `Q8_0`, `F16`, `F32`, `BF16`). Only components representing more than ~2% of bytes should appear, so the sum need not equal 100. Example: `55IQ2_XXS-34Q2_K-07Q8_0-03F16` means the file's bytes are ~55% IQ2_XXS, ~34% Q2_K, ~7% Q8_0, ~3% F16.
 1. **Type**: Indicates the kind of gguf file and the intended purpose for it
   - If missing, then file is by default a typical gguf tensor model file
   - `LoRA` : GGUF file is a LoRA adapter
@@ -55,7 +56,7 @@ The components are:
 
 At a minimum all model files should have at least BaseName, SizeLabel, Version, in order to be easily validated as a file that is keeping with the GGUF Naming Convention. An example of this issue is that it is easy for Encoding to be mistaken as a FineTune if Version is omitted.
 
-To validate you can use this regular expression `^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab|MTP)[\w_]+))?(?:-(?<Type>LoRA|vocab|MTP))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$` which will check that you got the minimum BaseName, SizeLabel and Version present in the correct order.
+To validate you can use this regular expression `^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab|MTP)[\w_]+(?:-\d{1,3}[A-Z][\w_]*)*))?(?:-(?<Type>LoRA|vocab|MTP))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$` which will check that you got the minimum BaseName, SizeLabel and Version present in the correct order.
 
 For example:
 
@@ -90,12 +91,19 @@ For example:
     - Weight Encoding Scheme: Q4_K_M
     - Type: MTP (Multi-Token Prediction draft module)
 
+  * `DeepSeek-V4-Flash-256x8.4B-v1.0-55IQ2_XXS-34Q2_K-07Q8_0-03F16.gguf`
+    - Model Name: DeepSeek V4 Flash
+    - Expert Count: 256
+    - Parameter Count: 8.4B (per-expert)
+    - Version Number: v1.0
+    - Weight Encoding Scheme: percentage-mixed recipe — ~55% IQ2_XXS, ~34% Q2_K, ~7% Q8_0, ~3% F16 (by byte share)
+
 
 <details><summary>Example Node.js Regex Function</summary>
 
 ```js
 #!/usr/bin/env node
-const ggufRegex = /^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab|MTP)[\w_]+))?(?:-(?<Type>LoRA|vocab|MTP))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$/;
+const ggufRegex = /^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab|MTP)[\w_]+(?:-\d{1,3}[A-Z][\w_]*)*))?(?:-(?<Type>LoRA|vocab|MTP))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$/;
 
 function parseGGUFFilename(filename) {
   const match = ggufRegex.exec(filename);
