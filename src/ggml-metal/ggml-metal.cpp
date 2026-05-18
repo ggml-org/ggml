@@ -581,8 +581,17 @@ static ggml_guid_t ggml_backend_metal_guid(void) {
 }
 
 ggml_backend_t ggml_backend_metal_init(void) {
-    ggml_backend_dev_t dev = ggml_backend_reg_dev_get(ggml_backend_metal_reg(), 0);
-    ggml_metal_device_t ctx_dev = (ggml_metal_device_t)dev->context;
+    ggml_backend_reg_t reg = ggml_backend_metal_reg();
+    if (reg == NULL || ggml_backend_reg_dev_count(reg) == 0) {
+        GGML_LOG_ERROR("%s: error: no Metal devices available\n", __func__);
+        return NULL;
+    }
+    ggml_backend_dev_t dev = ggml_backend_reg_dev_get(reg, 0);
+    ggml_metal_device_t ctx_dev = (ggml_metal_device_t)(dev ? dev->context : NULL);
+    if (ctx_dev == NULL) {
+        GGML_LOG_ERROR("%s: error: Metal device init failed - falling back to CPU\n", __func__);
+        return NULL;
+    }
 
     ggml_metal_t ctx = ggml_metal_init(ctx_dev);
     if (ctx == NULL) {
@@ -877,10 +886,14 @@ static ggml_backend_reg_i ggml_backend_metal_reg_i = {
 };
 
 static ggml_backend_dev_t ggml_backend_metal_device_init(ggml_backend_reg_t reg, int device) {
+    ggml_metal_device_t ctx = ggml_metal_device_get(device);
+    if (ctx == NULL) {
+        return NULL;
+    }
     return new ggml_backend_device {
         /* .iface   = */ ggml_backend_metal_device_i,
         /* .reg     = */ reg,
-        /* .context = */ ggml_metal_device_get(device),
+        /* .context = */ ctx,
     };
 }
 
@@ -916,6 +929,10 @@ ggml_backend_reg_t ggml_backend_metal_reg(void) {
 
             for (int i = 0; i < g_devices; ++i) {
                 auto * dev = ggml_backend_metal_device_init(&reg, i);
+                if (dev == NULL) {
+                    GGML_LOG_ERROR("%s: error: failed to init Metal device %d - skipping\n", __func__, i);
+                    continue;
+                }
                 devs.emplace_back(dev);
 
                 reg_ctx->devices.push_back(dev);

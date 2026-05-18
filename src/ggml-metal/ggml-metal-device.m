@@ -630,7 +630,13 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
     if (dev->mtl_device == nil) {
         dev->mtl_device = MTLCreateSystemDefaultDevice();
 
-        if (dev->mtl_device) {
+        if (dev->mtl_device == nil) {
+            GGML_LOG_ERROR("%s: error: MTLCreateSystemDefaultDevice returned nil - Metal not available on this device\n", __func__);
+            free(dev);
+            return NULL;
+        }
+
+        {
             dev->mtl_queue = [dev->mtl_device newCommandQueue];
             if (dev->mtl_queue == nil) {
                 GGML_LOG_ERROR("%s: error: failed to create command queue\n", __func__);
@@ -804,7 +810,17 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
 
             dev->library = ggml_metal_library_init(dev);
             if (!dev->library) {
-                GGML_LOG_ERROR("%s: error: failed to create library\n", __func__);
+                GGML_LOG_ERROR("%s: error: failed to create library - aborting Metal init\n", __func__);
+                if (dev->mtl_queue) {
+                    [dev->mtl_queue release];
+                    dev->mtl_queue = nil;
+                }
+                if (dev->mtl_device) {
+                    [dev->mtl_device release];
+                    dev->mtl_device = nil;
+                }
+                free(dev);
+                return NULL;
             }
 
             if (dev->props.use_residency_sets) {
@@ -883,15 +899,15 @@ void ggml_metal_device_free(ggml_metal_device_t dev) {
 }
 
 void * ggml_metal_device_get_obj(ggml_metal_device_t dev) {
-    return dev->mtl_device;
+    return dev ? dev->mtl_device : NULL;
 }
 
 void * ggml_metal_device_get_queue(ggml_metal_device_t dev) {
-    return dev->mtl_queue;
+    return dev ? dev->mtl_queue : NULL;
 }
 
 ggml_metal_library_t ggml_metal_device_get_library(ggml_metal_device_t dev) {
-    return dev->library;
+    return dev ? dev->library : NULL;
 }
 
 void ggml_metal_device_rsets_add(ggml_metal_device_t dev, ggml_metal_rset_t rset) {

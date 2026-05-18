@@ -20,7 +20,13 @@ typedef std::unique_ptr<ggml_metal_device, ggml_metal_device_deleter> ggml_metal
 ggml_metal_device_t ggml_metal_device_get(int device) {
     static std::vector<ggml_metal_device_ptr> devs;
 
-    devs.emplace_back(ggml_metal_device_init(device));
+    ggml_metal_device_t raw = ggml_metal_device_init(device);
+    if (raw == NULL) {
+        // Do not cache a NULL pointer in the device list - subsequent
+        // calls would otherwise return a stale dangling entry.
+        return NULL;
+    }
+    devs.emplace_back(raw);
 
     return devs.back().get();
 }
