@@ -553,14 +553,119 @@ static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent,
                 }
             }
         }
-        // Android app packaging can flatten native libraries into one directory.
-        // If loading from the requested subdirectory fails, retry by filename only
-        // and leave lookup to dlopen's default search path resolution.
-        fs::path filename = backend_filename_prefix().native() + name_path.native() + backend_filename_extension().native();
-        if (auto reg = get_reg().load_backend(filename, silent)) {
-            return reg;
+        // Android app packaging keeps native libraries compressed inside the
+        // APK with no on-disk directory to scan (the default since AGP 3.6's
+        // `useLegacyPackaging=false`). The directory-iterator loop above
+        // therefore finds nothing on Android, and we fall through here.
+        //
+        // For backends that ship as a single library (Vulkan / OpenCL / ...)
+        // the base-name `dlopen` below is enough -- Android's linker resolves
+        // it via the in-APK lookup using just the bare filename
+        // (`lib<prefix>ggml-<name>.so`, prefix from
+        // `backend_filename_prefix()`).
+        //
+        // For the CPU backend with `GGML_CPU_ALL_VARIANTS=ON` there is no
+        // plain `lib<prefix>ggml-cpu.so`, only the per-arch
+        // `lib<prefix>ggml-cpu-android_armv*_*.so` files, so we also try
+        // each known per-arch variant by bare filename and let ggml's
+        // `ggml_backend_score` (e.g. `ggml_backend_cpu_aarch64_score`
+        // from src/ggml-cpu/arch/arm/cpu-feats.cpp) pick the
+        // highest-scoring variant the device's HWCAP supports.
+        //
+        // TODO: keep the variant list below in sync with the
+        // `ggml_add_cpu_backend_variant(android_armv*_*)` calls in
+        // src/CMakeLists.txt (currently around lines 410-416). New
+        // tiers added there must be appended here as well, or
+        // devices on the new tier will silently fall back to a
+        // lower one (with a measurable perf hit).
+        std::vector<fs::path> candidate_names = { name_path };
+#ifdef __ANDROID__
+        if (strcmp(name, "cpu") == 0) {
+            candidate_names.emplace_back("cpu-android_armv8.0_1");
+            candidate_names.emplace_back("cpu-android_armv8.2_1");
+            candidate_names.emplace_back("cpu-android_armv8.2_2");
+            candidate_names.emplace_back("cpu-android_armv8.6_1");
+            candidate_names.emplace_back("cpu-android_armv9.0_1");
+            candidate_names.emplace_back("cpu-android_armv9.2_1");
+            candidate_names.emplace_back("cpu-android_armv9.2_2");
         }
-        return nullptr;
+#endif
+
+        // Fast path for the common case (every backend on every non-Android
+        // platform, plus Vulkan / OpenCL / Metal / ... on Android): exactly
+        // one candidate, no real "best variant" choice to make. Skip the
+        // score-then-reload loop below so we stay on the same single-
+        // `dlopen` cost as the pre-Android-variant code path. Without this,
+        // every backend on every platform pays for a double `dlopen` (one
+        // for scoring, one in `load_backend` after we pick the winner).
+        if (candidate_names.size() == 1) {
+            fs::path filename = backend_filename_prefix().native() +
+                                candidate_names[0].native() +
+                                backend_filename_extension().native();
+            if (auto reg = get_reg().load_backend(filename, silent)) {
+                return reg;
+            }
+            return nullptr;
+        }
+
+        // Multi-candidate (Android CPU today): iterate worst -> best with a
+        // synthetic per-index offset added on top of the runtime score so
+        // that:
+        //   - if multiple variants successfully dlopen on this device
+        //     (which can happen: every variant's `ggml_backend_score`
+        //     returns non-zero when HWCAP allows it, e.g. an armv9.2
+        //     device accepts every variant <= its tier), the highest
+        //     index wins on tie;
+        //   - the runtime `ggml_backend_score` value still dominates the
+        //     offset, so a device that legitimately supports only the
+        //     baseline (e.g. armv8.0 phone) still picks `armv8.0_1`
+        //     even when later variants fail to load.
+        //
+        // Each candidate is dlopened twice on the winning path (once here
+        // for scoring, once again via the `load_backend(best_path)` tail
+        // call) because `dl_handle_ptr` releases the handle on scope exit.
+        // Acceptable because this whole block is the cold-init slow path
+        // and only fires on the small Android CPU candidate set.
+        for (size_t idx = 0; idx < candidate_names.size(); ++idx) {
+            fs::path filename = backend_filename_prefix().native() +
+                                candidate_names[idx].native() +
+                                backend_filename_extension().native();
+            dl_handle_ptr handle { dl_load_library(filename) };
+            if (!handle) {
+                if (!silent) {
+                    GGML_LOG_DEBUG("%s: dlopen(%s) failed: %s\n", __func__,
+                                   path_str(filename).c_str(), dl_error());
+                }
+                continue;
+            }
+            auto score_fn = (ggml_backend_score_t)
+                dl_get_sym(handle.get(), "ggml_backend_score");
+            int s = 1; // base score for backends without ggml_backend_score
+            if (score_fn) {
+                s = score_fn();
+                if (s == 0) {
+                    // Backend explicitly refused this device. Drop the
+                    // handle (dl_handle_ptr's deleter unloads it) so we
+                    // don't leave dead libraries mapped.
+                    continue;
+                }
+            }
+            s += static_cast<int>(idx);
+#ifndef NDEBUG
+            GGML_LOG_DEBUG("%s: %s score: %d\n", __func__,
+                           path_str(filename).c_str(), s);
+#endif
+            if (s > best_score) {
+                best_score = s;
+                best_path = filename;
+            }
+            // Intentional: handle goes out of scope here; load_backend()
+            // below will re-dlopen the winning path. ggml itself caches
+            // the dlopen handle once load_backend() succeeds.
+        }
+        if (best_path.empty()) {
+            return nullptr;
+        }
     }
 
     return get_reg().load_backend(best_path, silent);
