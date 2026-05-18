@@ -20,9 +20,12 @@ The key difference between GGJT and GGUF is the use of a key-value structure for
 
 ### GGUF Naming Convention
 
-GGUF follow a naming convention of `<BaseName><SizeLabel><FineTune><Version><Encoding><Type><Shard>.gguf` where each component is delimitated by a `-` if present. Ultimately this is intended to make it easier for humans to at a glance get the most important details of a model. It is not intended to be perfectly parsable in the field due to the diversity of existing gguf filenames.
+GGUF follow a naming convention of `[<Sidecar>-]<BaseName><SizeLabel><FineTune><Version><Encoding><Type><Shard>.gguf` where each component is delimitated by a `-` if present. Ultimately this is intended to make it easier for humans to at a glance get the most important details of a model. It is not intended to be perfectly parsable in the field due to the diversity of existing gguf filenames.
 
 The components are:
+1. **Sidecar**: (Optional) Prefix marking the file as an auxiliary module loaded alongside a base model, rather than a standalone model. When present, sits at the very front of the filename followed by `-`. Lowercase by convention.
+    - `mmproj` : Multimodal projector (vision/audio encoder and projection layer for use with a base LLM)
+    - `mtp` : Multi-Token Prediction heads (speculative-decoding draft module, intended to be loaded alongside a base model of matching architecture and version)
 1. **BaseName**: A descriptive name for the model base type or architecture.
     - This can be derived from gguf metadata `general.basename` substituting spaces for dashes.
 1. **SizeLabel**: Parameter weight class (useful for leader boards) represented as `<expertCount>x<count><scale-prefix>`
@@ -44,7 +47,6 @@ The components are:
   - If missing, then file is by default a typical gguf tensor model file
   - `LoRA` : GGUF file is a LoRA adapter
   - `vocab` : GGUF file with only vocab data and metadata
-  - `MTP` : GGUF file contains Multi-Token Prediction heads (a speculative-decoding draft module), intended to be loaded alongside a base model of matching architecture and version
 1. **Shard**: (Optional) Indicates and denotes that the model has been split into multiple shards, formatted as `<ShardNum>-of-<ShardTotal>`.
     - *ShardNum* : Shard position in this model. Must be 5 digits padded by zeros.
       - Shard number always starts from `00001` onwards (e.g. First shard always starts at `00001-of-XXXXX` rather than `00000-of-XXXXX`).
@@ -55,7 +57,7 @@ The components are:
 
 At a minimum all model files should have at least BaseName, SizeLabel, Version, in order to be easily validated as a file that is keeping with the GGUF Naming Convention. An example of this issue is that it is easy for Encoding to be mistaken as a FineTune if Version is omitted.
 
-To validate you can use this regular expression `^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab|MTP)[\w_]+))?(?:-(?<Type>LoRA|vocab|MTP))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$` which will check that you got the minimum BaseName, SizeLabel and Version present in the correct order.
+To validate you can use this regular expression `^(?:(?<Sidecar>mmproj|mtp)-)?(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab)[\w_]+))?(?:-(?<Type>LoRA|vocab))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$` which will check that you got the minimum BaseName, SizeLabel and Version present in the correct order.
 
 For example:
 
@@ -82,35 +84,44 @@ For example:
     - Weight Encoding Scheme: Q4_0
     - Shard: 3 out of 9 total shards
 
-  * `Qwen3-27B-v1.0-Q4_K_M-MTP.gguf`
+  * `mtp-Qwen3-27B-v1.0-Q4_K_M.gguf`
+    - Sidecar: mtp (Multi-Token Prediction draft module)
     - Model Name: Qwen3
     - Expert Count: 0
     - Parameter Count: 27B
     - Version Number: v1.0
     - Weight Encoding Scheme: Q4_K_M
-    - Type: MTP (Multi-Token Prediction draft module)
+
+  * `mmproj-Qwen2-VL-7B-v1.0-F16.gguf`
+    - Sidecar: mmproj (multimodal projector)
+    - Model Name: Qwen2-VL
+    - Expert Count: 0
+    - Parameter Count: 7B
+    - Version Number: v1.0
+    - Weight Encoding Scheme: F16
 
 
 <details><summary>Example Node.js Regex Function</summary>
 
 ```js
 #!/usr/bin/env node
-const ggufRegex = /^(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab|MTP)[\w_]+))?(?:-(?<Type>LoRA|vocab|MTP))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$/;
+const ggufRegex = /^(?:(?<Sidecar>mmproj|mtp)-)?(?<BaseName>[A-Za-z0-9\s]*(?:(?:-(?:(?:[A-Za-z\s][A-Za-z0-9\s]*)|(?:[0-9\s]*)))*))-(?:(?<SizeLabel>(?:\d+x)?(?:\d+\.)?\d+[A-Za-z](?:-[A-Za-z]+(\d+\.)?\d+[A-Za-z]+)?)(?:-(?<FineTune>[A-Za-z0-9\s-]+))?)?-(?:(?<Version>v\d+(?:\.\d+)*))(?:-(?<Encoding>(?!LoRA|vocab)[\w_]+))?(?:-(?<Type>LoRA|vocab))?(?:-(?<Shard>\d{5}-of-\d{5}))?\.gguf$/;
 
 function parseGGUFFilename(filename) {
   const match = ggufRegex.exec(filename);
   if (!match)
     return null;
-  const {BaseName = null, SizeLabel = null, FineTune = null, Version = "v1.0", Encoding = null, Type = null, Shard = null} = match.groups;
-  return {BaseName: BaseName, SizeLabel: SizeLabel, FineTune: FineTune, Version: Version, Encoding: Encoding, Type: Type, Shard: Shard};
+  const {Sidecar = null, BaseName = null, SizeLabel = null, FineTune = null, Version = "v1.0", Encoding = null, Type = null, Shard = null} = match.groups;
+  return {Sidecar: Sidecar, BaseName: BaseName, SizeLabel: SizeLabel, FineTune: FineTune, Version: Version, Encoding: Encoding, Type: Type, Shard: Shard};
 }
 
 const testCases = [
-  {filename: 'Mixtral-8x7B-v0.1-KQ2.gguf',                         expected: { BaseName: 'Mixtral',              SizeLabel: '8x7B',     FineTune: null, Version: 'v0.1',   Encoding: 'KQ2',  Type: null, Shard: null}},
-  {filename: 'Grok-100B-v1.0-Q4_0-00003-of-00009.gguf',            expected: { BaseName: 'Grok',                 SizeLabel: '100B',     FineTune: null, Version: 'v1.0',   Encoding: 'Q4_0', Type: null, Shard: "00003-of-00009"}},
-  {filename: 'Hermes-2-Pro-Llama-3-8B-v1.0-F16.gguf',              expected: { BaseName: 'Hermes-2-Pro-Llama-3', SizeLabel: '8B', FineTune: null, Version: 'v1.0',   Encoding: 'F16',  Type: null, Shard: null}},
-  {filename: 'Phi-3-mini-3.8B-ContextLength4k-instruct-v1.0.gguf', expected: { BaseName: 'Phi-3-mini',   SizeLabel: '3.8B-ContextLength4k', FineTune: 'instruct', Version: 'v1.0',   Encoding: null,  Type: null, Shard: null}},
-  {filename: 'Qwen3-27B-v1.0-Q4_K_M-MTP.gguf',                     expected: { BaseName: 'Qwen3',                SizeLabel: '27B',      FineTune: null, Version: 'v1.0',   Encoding: 'Q4_K_M', Type: 'MTP', Shard: null}},
+  {filename: 'Mixtral-8x7B-v0.1-KQ2.gguf',                         expected: { Sidecar: null,   BaseName: 'Mixtral',              SizeLabel: '8x7B',     FineTune: null, Version: 'v0.1',   Encoding: 'KQ2',    Type: null, Shard: null}},
+  {filename: 'Grok-100B-v1.0-Q4_0-00003-of-00009.gguf',            expected: { Sidecar: null,   BaseName: 'Grok',                 SizeLabel: '100B',     FineTune: null, Version: 'v1.0',   Encoding: 'Q4_0',   Type: null, Shard: "00003-of-00009"}},
+  {filename: 'Hermes-2-Pro-Llama-3-8B-v1.0-F16.gguf',              expected: { Sidecar: null,   BaseName: 'Hermes-2-Pro-Llama-3', SizeLabel: '8B',       FineTune: null, Version: 'v1.0',   Encoding: 'F16',    Type: null, Shard: null}},
+  {filename: 'Phi-3-mini-3.8B-ContextLength4k-instruct-v1.0.gguf', expected: { Sidecar: null,   BaseName: 'Phi-3-mini',           SizeLabel: '3.8B-ContextLength4k', FineTune: 'instruct', Version: 'v1.0', Encoding: null,    Type: null, Shard: null}},
+  {filename: 'mtp-Qwen3-27B-v1.0-Q4_K_M.gguf',                     expected: { Sidecar: 'mtp',  BaseName: 'Qwen3',                SizeLabel: '27B',      FineTune: null, Version: 'v1.0',   Encoding: 'Q4_K_M', Type: null, Shard: null}},
+  {filename: 'mmproj-Qwen2-VL-7B-v1.0-F16.gguf',                   expected: { Sidecar: 'mmproj', BaseName: 'Qwen2-VL',           SizeLabel: '7B',       FineTune: null, Version: 'v1.0',   Encoding: 'F16',    Type: null, Shard: null}},
   {filename: 'not-a-known-arrangement.gguf',                       expected: null},
 ];
 
