@@ -1617,6 +1617,13 @@ void * ggml_metal_buffer_get_base(ggml_metal_buffer_t buf) {
 }
 
 bool ggml_metal_buffer_is_shared(ggml_metal_buffer_t buf) {
+    if (buf == NULL) {
+        // Defensive: callers may pass the result of a failed buffer init
+        // (ggml_metal_buffer_init can return NULL on MTLDevice
+        // newBufferWithLength: failure). Treat as non-shared so downstream
+        // sees a consistent buffer type rather than dereferencing NULL.
+        return false;
+    }
     return buf->is_shared;
 }
 
