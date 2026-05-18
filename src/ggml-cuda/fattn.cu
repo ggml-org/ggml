@@ -75,13 +75,17 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(ggml_backend_cuda_con
             return;
         }
 
-        if (use_gqa_opt && gqa_ratio % 2 == 0) {
-            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx, dst);
-            return;
-        }
+        if constexpr (DKQ <= 256) {
+            if (use_gqa_opt && gqa_ratio % 2 == 0) {
+                ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx, dst);
+                return;
+            }
 
-        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx, dst);
-        return;
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx, dst);
+            return;
+        } else {
+            GGML_ABORT("fatal error");
+        }
     }
 
     if (use_gqa_opt && gqa_ratio > 4) {
@@ -94,12 +98,16 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(ggml_backend_cuda_con
         return;
     }
 
-    if (use_gqa_opt && gqa_ratio > 1) {
-        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx, dst);
-        return;
-    }
+    if constexpr (DKQ <= 256) {
+        if (use_gqa_opt && gqa_ratio > 1) {
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx, dst);
+            return;
+        }
 
-    ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx, dst);
+        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx, dst);
+    } else {
+        GGML_ABORT("fatal error");
+    }
 }
 
 static void ggml_cuda_flash_attn_ext_mma_f16(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
@@ -134,6 +142,22 @@ static void ggml_cuda_flash_attn_ext_mma_f16(ggml_backend_cuda_context & ctx, gg
         case 256:
             GGML_ASSERT(V->ne[0] == 256);
             ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2<256, 256>(ctx, dst);
+            break;
+        case 320:
+            // For Mistral Small 4, go straight to the ncols1 switch (ncols2=32-only build).
+            GGML_ASSERT(V->ne[0] == 256);
+            {
+                float max_bias = 0.0f;
+                memcpy(&max_bias, (const float *) KQV->op_params + 1, sizeof(float));
+
+                const bool use_gqa_opt = mask && max_bias == 0.0f;
+                GGML_ASSERT(use_gqa_opt);
+                GGML_ASSERT(Q->ne[2] % K->ne[2] == 0);
+                const int gqa_ratio = Q->ne[2] / K->ne[2];
+                GGML_ASSERT(gqa_ratio % 32 == 0);
+
+                ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<320, 256, 32>(ctx, dst);
+            }
             break;
         case 512:
             GGML_ASSERT(V->ne[0] == 512);
@@ -341,6 +365,14 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
         case 112:
         case 256:
             if (V->ne[0] != K->ne[0]) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            break;
+        case 320:
+            if (V->ne[0] != 256 || !gqa_opt_applies) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            if (gqa_ratio % 32 != 0) {
                 return BEST_FATTN_KERNEL_NONE;
             }
             break;

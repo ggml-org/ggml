@@ -87,6 +87,7 @@ int ggml_metal_op_supertonic_pw2_residual(ggml_metal_op_t ctx, int idx);
 int ggml_metal_op_supertonic_bias_gelu(ggml_metal_op_t ctx, int idx);
 int ggml_metal_op_supertonic_edge_pad_1d(ggml_metal_op_t ctx, int idx);
 int ggml_metal_op_diag_mask_inf     (ggml_metal_op_t ctx, int idx);
+int ggml_metal_op_roll              (ggml_metal_op_t ctx, int idx);
 int ggml_metal_op_arange            (ggml_metal_op_t ctx, int idx);
 int ggml_metal_op_timestep_embedding(ggml_metal_op_t ctx, int idx);
 int ggml_metal_op_argmax            (ggml_metal_op_t ctx, int idx);
