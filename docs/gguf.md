@@ -88,7 +88,7 @@ For example:
     - Sidecar: mtp (Multi-Token Prediction draft module)
     - Model Name: Qwen3
     - Expert Count: 0
-    - Parameter Count: 27B
+    - Parameter Count: 27B (of the main model — sidecar tensors are smaller)
     - Version Number: v1.0
     - Weight Encoding Scheme: Q4_K_M
 
@@ -96,7 +96,7 @@ For example:
     - Sidecar: mmproj (multimodal projector)
     - Model Name: Qwen2-VL
     - Expert Count: 0
-    - Parameter Count: 7B
+    - Parameter Count: 7B (of the main model — sidecar tensors are smaller)
     - Version Number: v1.0
     - Weight Encoding Scheme: F16
 
