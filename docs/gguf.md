@@ -20,12 +20,12 @@ The key difference between GGJT and GGUF is the use of a key-value structure for
 
 ### GGUF Naming Convention
 
-GGUF follow a naming convention of `[<Sidecar>-]<BaseName><SizeLabel><FineTune><Version><Encoding><Type><Shard>.gguf` where each component is delimitated by a `-` if present. Ultimately this is intended to make it easier for humans to at a glance get the most important details of a model. It is not intended to be perfectly parsable in the field due to the diversity of existing gguf filenames.
+GGUF follow a naming convention of `[<Sidecar>]<BaseName><SizeLabel><FineTune><Version><Encoding><Type><Shard>.gguf` where each component is delimitated by a `-` if present. Ultimately this is intended to make it easier for humans to at a glance get the most important details of a model. It is not intended to be perfectly parsable in the field due to the diversity of existing gguf filenames.
 
 The components are:
 1. **Sidecar**: (Optional) Prefix marking the file as an auxiliary module loaded alongside a base model, rather than a standalone model. When present, sits at the very front of the filename followed by `-`. Lowercase by convention.
     - `mmproj` : Multimodal projector (vision/audio encoder and projection layer for use with a base LLM)
-    - `mtp` : Multi-Token Prediction heads (speculative-decoding draft module, intended to be loaded alongside a base model of matching architecture and version)
+    - `mtp` : Multi-Token Prediction heads (speculative-decoding draft module, intended to be loaded alongside a base model of matching architecture and version). Note that oftentimes the MTP weights can be distributed inside the base model, in which case there is no separate `mtp-` sidecar file.
 1. **BaseName**: A descriptive name for the model base type or architecture.
     - This can be derived from gguf metadata `general.basename` substituting spaces for dashes.
 1. **SizeLabel**: Parameter weight class (useful for leader boards) represented as `<expertCount>x<count><scale-prefix>`
