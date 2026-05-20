@@ -632,7 +632,11 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
 
         if (dev->mtl_device == nil) {
             GGML_LOG_ERROR("%s: error: MTLCreateSystemDefaultDevice returned nil - Metal not available on this device\n", __func__);
-            free(dev);
+            // Use the canonical teardown helper - it is NULL-safe over
+            // every dev->* field, so partially-initialized structs are
+            // handled correctly here and will continue to be even if new
+            // owned resources are added to ggml_metal_device later.
+            ggml_metal_device_free(dev);
             return NULL;
         }
 
@@ -811,15 +815,14 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
             dev->library = ggml_metal_library_init(dev);
             if (!dev->library) {
                 GGML_LOG_ERROR("%s: error: failed to create library - aborting Metal init\n", __func__);
-                if (dev->mtl_queue) {
-                    [dev->mtl_queue release];
-                    dev->mtl_queue = nil;
-                }
-                if (dev->mtl_device) {
-                    [dev->mtl_device release];
-                    dev->mtl_device = nil;
-                }
-                free(dev);
+                // Use the canonical teardown helper instead of open-coding
+                // releases for mtl_queue / mtl_device. ggml_metal_device_free
+                // is NULL-safe across every owned field (rsets, library,
+                // mtl_queue, mtl_device) so it correctly handles this
+                // partially-initialized struct - and stays correct if any
+                // new owned resources are added to ggml_metal_device or
+                // moved earlier in the init sequence in the future.
+                ggml_metal_device_free(dev);
                 return NULL;
             }
 
