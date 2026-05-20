@@ -630,7 +630,17 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
     if (dev->mtl_device == nil) {
         dev->mtl_device = MTLCreateSystemDefaultDevice();
 
-        if (dev->mtl_device) {
+        if (dev->mtl_device == nil) {
+            GGML_LOG_ERROR("%s: error: MTLCreateSystemDefaultDevice returned nil - Metal not available on this device\n", __func__);
+            // Use the canonical teardown helper - it is NULL-safe over
+            // every dev->* field, so partially-initialized structs are
+            // handled correctly here and will continue to be even if new
+            // owned resources are added to ggml_metal_device later.
+            ggml_metal_device_free(dev);
+            return NULL;
+        }
+
+        {
             dev->mtl_queue = [dev->mtl_device newCommandQueue];
             if (dev->mtl_queue == nil) {
                 GGML_LOG_ERROR("%s: error: failed to create command queue\n", __func__);
@@ -804,7 +814,16 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
 
             dev->library = ggml_metal_library_init(dev);
             if (!dev->library) {
-                GGML_LOG_ERROR("%s: error: failed to create library\n", __func__);
+                GGML_LOG_ERROR("%s: error: failed to create library - aborting Metal init\n", __func__);
+                // Use the canonical teardown helper instead of open-coding
+                // releases for mtl_queue / mtl_device. ggml_metal_device_free
+                // is NULL-safe across every owned field (rsets, library,
+                // mtl_queue, mtl_device) so it correctly handles this
+                // partially-initialized struct - and stays correct if any
+                // new owned resources are added to ggml_metal_device or
+                // moved earlier in the init sequence in the future.
+                ggml_metal_device_free(dev);
+                return NULL;
             }
 
             if (dev->props.use_residency_sets) {
@@ -883,15 +902,15 @@ void ggml_metal_device_free(ggml_metal_device_t dev) {
 }
 
 void * ggml_metal_device_get_obj(ggml_metal_device_t dev) {
-    return dev->mtl_device;
+    return dev ? dev->mtl_device : NULL;
 }
 
 void * ggml_metal_device_get_queue(ggml_metal_device_t dev) {
-    return dev->mtl_queue;
+    return dev ? dev->mtl_queue : NULL;
 }
 
 ggml_metal_library_t ggml_metal_device_get_library(ggml_metal_device_t dev) {
-    return dev->library;
+    return dev ? dev->library : NULL;
 }
 
 void ggml_metal_device_rsets_add(ggml_metal_device_t dev, ggml_metal_rset_t rset) {
@@ -1617,6 +1636,13 @@ void * ggml_metal_buffer_get_base(ggml_metal_buffer_t buf) {
 }
 
 bool ggml_metal_buffer_is_shared(ggml_metal_buffer_t buf) {
+    if (buf == NULL) {
+        // Defensive: callers may pass the result of a failed buffer init
+        // (ggml_metal_buffer_init can return NULL on MTLDevice
+        // newBufferWithLength: failure). Treat as non-shared so downstream
+        // sees a consistent buffer type rather than dereferencing NULL.
+        return false;
+    }
     return buf->is_shared;
 }
 
