@@ -5441,11 +5441,15 @@ kernel void kernel_pad_f32(
                              i03 >= 0 && i03 < args.ne03);
 
     if (row_inside) {
-        device const float * src0_ptr = (device const float *) (src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01);
+        // Walk dim 0 via byte stride nb00 so non-contiguous (e.g. permuted)
+        // inputs are handled correctly. Old code did src0_ptr[i00], which
+        // implicitly assumed nb00 == sizeof(float) and produced garbage for
+        // any permuted source (matches CPU pad_ext, which honors nb[]).
+        device const char * src0_row = src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01;
         for (int i0 = tpitg.x; i0 < args.ne0; i0 += ntg.x) {
             const int64_t i00 = i0 - args.lp0;
             if (i00 >= 0 && i00 < args.ne00) {
-                dst_ptr[i0] = src0_ptr[i00];
+                dst_ptr[i0] = *(device const float *) (src0_row + i00*args.nb00);
             } else {
                 dst_ptr[i0] = 0.0f;
             }
@@ -5507,18 +5511,25 @@ kernel void kernel_pad_reflect_1d_f32(
     const int64_t i02 = i2;
     const int64_t i01 = i1;
 
-    device const float * src0_ptr = (device const float *) (src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01);
+    // Walk dim 0 via byte stride nb00 so non-contiguous (e.g. permuted)
+    // inputs are handled correctly; mirrors the kernel_pad_f32 fix. No
+    // currently-registered test exercises this kernel with a permuted source
+    // (test_pad_reflect_1d is 2D, tfrm-less), but the failure mode would be
+    // identical, so we keep the two kernels in step.
+    device const char  * src0_row = src0 + i03*args.nb03 + i02*args.nb02 + i01*args.nb01;
     device       float * dst_ptr  = (device       float *) (dst  +  i3*args.nb3  +  i2*args.nb2  +  i1*args.nb1);
 
     if (i1 < args.ne01 && i2 < args.ne02 && i3 < args.ne03) {
         for (int i0 = tpitg.x; i0 < args.ne0; i0 += ntg.x) {
+            int64_t i00;
             if (i0 < args.p0) {
-                dst_ptr[i0] = src0_ptr[args.p0 - i0];
+                i00 = args.p0 - i0;
             } else if (i0 < args.ne0 - args.p1) {
-                dst_ptr[i0] = src0_ptr[i0 - args.p0];
+                i00 = i0 - args.p0;
             } else {
-                dst_ptr[i0] = src0_ptr[(args.ne0 - args.p1 - args.p0) - (args.p1 + 1 - (args.ne0 - i0)) - 1];
+                i00 = (args.ne0 - args.p1 - args.p0) - (args.p1 + 1 - (args.ne0 - i0)) - 1;
             }
+            dst_ptr[i0] = *(device const float *) (src0_row + i00*args.nb00);
         }
     }
 }
