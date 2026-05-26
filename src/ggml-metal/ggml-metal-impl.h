@@ -1041,6 +1041,7 @@ typedef struct {
     int32_t  p1;
 } ggml_metal_kargs_pad_reflect_1d;
 
+typedef struct {
     int32_t L;
     int32_t C;
     int32_t K;
