@@ -15,8 +15,11 @@
 #include <string>
 #include <vector>
 
-#define GGUF_MAX_STRING_LENGTH  (1024*1024*1024)
-#define GGUF_MAX_ARRAY_ELEMENTS (1024*1024*1024)
+// Security: reduced from 1 GiB to 64 MiB to prevent memory exhaustion DoS
+// via crafted GGUF files with oversized string or array metadata.
+// 64 MiB is still far above any legitimate model metadata size.
+#define GGUF_MAX_STRING_LENGTH  (64*1024*1024)
+#define GGUF_MAX_ARRAY_ELEMENTS (64*1024*1024)
 
 #ifdef _WIN32
 #    define gguf_ftell _ftelli64
@@ -609,8 +612,19 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
         const int alignment_idx = gguf_find_key(ctx, GGUF_KEY_GENERAL_ALIGNMENT);
         ctx->alignment = alignment_idx == -1 ? GGUF_DEFAULT_ALIGNMENT : gguf_get_val_u32(ctx, alignment_idx);
 
+        // Security: alignment must be a power of 2 AND within a sane range.
+        // Without an upper bound, a malicious file could set alignment to e.g. 2^31,
+        // causing massive padding between tensors and triggering OOM during loading.
+        // 1 MiB (1<<20) is well above any legitimate alignment (typically 32-4096 bytes).
+        static const size_t GGUF_MAX_ALIGNMENT = 1 << 20; // 1 MiB
+
         if (ctx->alignment == 0 || (ctx->alignment & (ctx->alignment - 1)) != 0) {
             GGML_LOG_ERROR("%s: alignment %zu is not a power of 2\n", __func__, ctx->alignment);
+            gguf_free(ctx);
+            return nullptr;
+        }
+        if (ctx->alignment > GGUF_MAX_ALIGNMENT) {
+            GGML_LOG_ERROR("%s: alignment %zu exceeds maximum allowed %zu\n", __func__, ctx->alignment, GGUF_MAX_ALIGNMENT);
             gguf_free(ctx);
             return nullptr;
         }
