@@ -2025,6 +2025,30 @@ struct test_unary : public test_case {
 
 };
 
+// Precision test for GGML_UNARY_OP_EXPM1 near x=0, where expf(x)-1 loses all significant bits.
+// Inputs in [-1e-6, 1e-6] expose the catastrophic cancellation in the naive implementation.
+struct test_unary_expm1_near_zero : public test_case {
+    std::string vars() override { return ""; }
+
+    ggml_tensor * build_graph(ggml_context * ctx) override {
+        ggml_tensor * a = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 64);
+        ggml_set_name(a, "a");
+        ggml_tensor * out = ggml_unary(ctx, a, GGML_UNARY_OP_EXPM1);
+        ggml_set_name(out, "out");
+        return out;
+    }
+
+    void initialize_tensors(ggml_context * ctx) override {
+        for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
+            init_tensor_uniform(t, -1e-6f, 1e-6f);
+        }
+    }
+
+    double max_nmse_err() override {
+        return 1e-6;
+    }
+};
+
 // GGML_OP_GLU
 struct test_glu : public test_case {
     const ggml_glu_op op;
@@ -7602,6 +7626,9 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
             }
         }
     }
+
+    // expm1 precision: near-zero inputs expose catastrophic cancellation in expf(x)-1
+    test_cases.emplace_back(new test_unary_expm1_near_zero());
 
     // fused relu + sqr (squared ReLU)
     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
