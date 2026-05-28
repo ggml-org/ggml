@@ -4927,6 +4927,12 @@ struct ggml_tensor * ggml_conv_transpose_2d_p0(
         struct ggml_tensor  * b,
         int                   stride) {
     GGML_ASSERT(a->ne[3] == b->ne[2]);
+    // The CPU/Metal/Vulkan compute kernels currently only iterate batch index 0,
+    // so calling with b->ne[3] > 1 would silently produce zeros for batches 1..N
+    // while reporting the correct 4D output shape. Reject at the API level —
+    // matches the GGML_ASSERT(a->ne[3] == 1) precedent in ggml_conv_transpose_1d.
+    // See: https://github.com/ggml-org/ggml/issues/1448
+    GGML_ASSERT(b->ne[3] == 1);
 
     const int64_t ne[4] = {
         ggml_calc_conv_transpose_output_size(b->ne[0], a->ne[0], stride, 0 /*p0*/),
