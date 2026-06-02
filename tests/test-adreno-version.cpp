@@ -74,14 +74,16 @@ int main() {
     expect_policy(750, true, false);
     expect_policy(730, true, false);
     expect_policy(701, true, false);
-    // Boundary: exactly 700 is NOT > 700 -> falls to the 601..700 tier (CPU only).
+    // Boundary: exactly 700 is NOT > 700 -> CPU-only tier.
     expect_policy(700, false, true);
-    // Adreno 601..700 -> CPU only (unload Vulkan, no OpenCL).
+    // Adreno 1..700 -> CPU only (unload Vulkan, no OpenCL). This now includes
+    // Adreno <= 600, which is treated the same as 601..700 (stricter than
+    // qvac-fabric-llm.cpp, which loaded OpenCL on <= 600).
     expect_policy(660, false, true);
     expect_policy(601, false, true);
-    // Boundary: exactly 600 is NOT > 600 -> old-Adreno tier (load OpenCL).
-    expect_policy(600, true, false);
-    expect_policy(500, true, false);
+    expect_policy(600, false, true);   // <= 600 now CPU-only (was OpenCL)
+    expect_policy(500, false, true);   // <= 600 now CPU-only (was OpenCL)
+    expect_policy(1, false, true);     // smallest positive Adreno -> CPU only
 
     if (g_failures == 0) {
         std::printf("All Adreno-version parsing cases passed.\n");

@@ -58,14 +58,18 @@ inline int ggml_adreno_version_from_description(const std::string & gpu_descript
 // ggml_backend_load_all_from_path() so the version thresholds are unit-testable
 // without a GPU. Input is the smallest Adreno generation among the GPU devices
 // (the value ggml_backend_min_adreno_version() returns: a positive generation,
-// or <= 0 when no Adreno GPU is present). Mirrors qvac-fabric-llm.cpp's ggml
-// fork:
+// or <= 0 when no Adreno GPU is present).
+//
 //   not Adreno (<= 0) -> no OpenCL; keep Vulkan/CPU
 //   Adreno > 700      -> load OpenCL (kept alongside Vulkan; the consumer picks
 //                        OpenCL over Vulkan -- see transcription-whispercpp)
-//   Adreno 601..700   -> CPU only: unload Vulkan and don't load OpenCL (both GPU
-//                        paths are unstable on this tier)
-//   Adreno 1..600     -> load OpenCL (kept alongside Vulkan), matching fabric
+//   Adreno 1..700     -> CPU only: unload Vulkan and don't load OpenCL
+//                        (only Adreno 700+ has a stable ggml GPU path)
+//
+// Note: this is stricter than qvac-fabric-llm.cpp, which loads OpenCL on
+// Adreno <= 600. We treat Adreno <= 600 the same as 601..700 (CPU only): older
+// Adreno GPUs are no more capable than the 601..700 tier we already exclude, so
+// there is no reason to expose a GPU backend on them.
 struct ggml_adreno_backend_policy {
     bool load_opencl;
     bool unload_vulkan;
@@ -78,8 +82,6 @@ inline ggml_adreno_backend_policy ggml_adreno_resolve_backend_policy(int min_adr
     if (min_adreno_version > 700) {
         return ggml_adreno_backend_policy{ /*load_opencl=*/ true, /*unload_vulkan=*/ false };
     }
-    if (min_adreno_version > 600) {
-        return ggml_adreno_backend_policy{ /*load_opencl=*/ false, /*unload_vulkan=*/ true };
-    }
-    return ggml_adreno_backend_policy{ /*load_opencl=*/ true, /*unload_vulkan=*/ false };
+    // Adreno 1..700 (incl. <= 600): CPU only.
+    return ggml_adreno_backend_policy{ /*load_opencl=*/ false, /*unload_vulkan=*/ true };
 }
