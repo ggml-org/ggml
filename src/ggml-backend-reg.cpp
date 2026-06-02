@@ -2,9 +2,11 @@
 #include "ggml-backend.h"
 #include "ggml-backend-dl.h"
 #include "ggml-impl.h"
+#include "ggml-adreno.h"
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -687,6 +689,35 @@ void ggml_backend_load_all() {
     ggml_backend_load_all_from_path(nullptr);
 }
 
+#ifdef __ANDROID__
+namespace {
+// Smallest Adreno generation among the GPU devices a (Vulkan) backend exposes,
+// or a negative sentinel: -2 if `reg` is null, -1 if no Adreno GPU is present.
+// Vulkan is used as the probe because it is present on virtually every Android
+// GPU, so the GPU can be identified before deciding whether to load OpenCL.
+// Mirrors qvac-fabric-llm.cpp's ggml fork (the LLM stack's backend selection).
+int ggml_backend_min_adreno_version(ggml_backend_reg_t reg) {
+    if (reg == nullptr) {
+        return -2;
+    }
+    int min_found = std::numeric_limits<int>::max();
+    for (size_t i = 0; i < ggml_backend_reg_dev_count(reg); i++) {
+        ggml_backend_dev_t dev = ggml_backend_reg_dev_get(reg, i);
+        if (dev == nullptr) {
+            continue;
+        }
+        const char * description = ggml_backend_dev_description(dev);
+        GGML_LOG_INFO("%s: found device description: %s\n", __func__, description ? description : "(null)");
+        const int dev_adreno_version = ggml_adreno_version_from_description(description ? description : "");
+        if (dev_adreno_version > 0) {
+            min_found = std::min(min_found, dev_adreno_version);
+        }
+    }
+    return (min_found < std::numeric_limits<int>::max()) ? min_found : -1;
+}
+} // namespace
+#endif // __ANDROID__
+
 void ggml_backend_load_all_from_path(const char * dir_path) {
 #ifdef NDEBUG
     bool silent = true;
@@ -704,7 +735,39 @@ void ggml_backend_load_all_from_path(const char * dir_path) {
     ggml_backend_load_best("sycl", silent, dir_path);
     ggml_backend_load_best("vulkan", silent, dir_path);
     ggml_backend_load_best("virtgpu", silent, dir_path);
-    ggml_backend_load_best("opencl", silent, dir_path);
+
+    // OpenCL is only useful (and stable) for ggml on Adreno GPUs; on every
+    // other GPU the Adreno-tuned OpenCL kernels are either unsupported or buggy.
+    // On Android, use the already-loaded Vulkan backend to detect the GPU and
+    // only keep OpenCL for an Adreno that benefits from it. This mirrors
+    // qvac-fabric-llm.cpp's ggml fork so the speech stack selects backends the
+    // same way the LLM stack does. Off Android (or when no Vulkan backend is
+    // present) behaviour is unchanged: OpenCL is loaded unconditionally here.
+    bool load_opencl = true;
+#ifdef __ANDROID__
+    {
+        ggml_backend_reg_t vulkan_backend = ggml_backend_reg_by_name("vulkan");
+        const int min_adreno_version = ggml_backend_min_adreno_version(vulkan_backend);
+        const ggml_adreno_backend_policy policy = ggml_adreno_resolve_backend_policy(min_adreno_version);
+        load_opencl = policy.load_opencl;
+        if (min_adreno_version <= 0) {
+            GGML_LOG_INFO("%s: no Adreno GPU detected (%d); skipping OpenCL, relying on Vulkan/CPU\n",
+                          __func__, min_adreno_version);
+        } else if (policy.unload_vulkan) {
+            GGML_LOG_INFO("%s: Adreno %d detected; removing Vulkan and relying on CPU only\n",
+                          __func__, min_adreno_version);
+            if (vulkan_backend != nullptr) {
+                ggml_backend_unload(vulkan_backend);
+            }
+        } else if (policy.load_opencl) {
+            GGML_LOG_INFO("%s: Adreno %d detected; keeping OpenCL backend\n", __func__, min_adreno_version);
+        }
+    }
+#endif // __ANDROID__
+    if (load_opencl) {
+        ggml_backend_load_best("opencl", silent, dir_path);
+    }
+
     ggml_backend_load_best("hexagon", silent, dir_path);
     ggml_backend_load_best("musa", silent, dir_path);
     ggml_backend_load_best("openvino", silent, dir_path);

@@ -168,6 +168,18 @@ target_link_libraries(${TEST_TARGET} PRIVATE ggml Threads::Threads)
 add_test(NAME ${TEST_TARGET} COMMAND $<TARGET_FILE:${TEST_TARGET}>)
 set_property(TEST ${TEST_TARGET} PROPERTY ENVIRONMENT "LLVM_PROFILE_FILE=${TEST_TARGET}.profraw")
 
+#
+# test-adreno-version
+# Pure unit test for src/ggml-adreno.h (Adreno GPU-string parser used by the
+# Android OpenCL/Vulkan backend-selection policy). Header-only: needs the src/
+# include path but does not link the ggml runtime. Always built.
+
+set(TEST_TARGET test-adreno-version)
+add_executable(${TEST_TARGET} ${TEST_TARGET}.cpp)
+target_include_directories(${TEST_TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+add_test(NAME ${TEST_TARGET} COMMAND $<TARGET_FILE:${TEST_TARGET}>)
+set_property(TEST ${TEST_TARGET} PROPERTY ENVIRONMENT "LLVM_PROFILE_FILE=${TEST_TARGET}.profraw")
+
 
 if (NOT GGML_BACKEND_DL)
     #
