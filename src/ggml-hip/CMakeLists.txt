@@ -130,6 +130,13 @@ if (GGML_HIP_EXPORT_METRICS)
     set(CMAKE_HIP_FLAGS "${CMAKE_HIP_FLAGS} -Rpass-analysis=kernel-resource-usage --save-temps")
 endif()
 
+# Parity with the CUDA backend's -use_fast_math (see ggml-cuda/CMakeLists.txt), minus the
+# IEEE-breaking parts. This is intentionally NOT -ffast-math: that implies -ffinite-math-only,
+# which both breaks ggml's deliberate INFINITY use (e.g. softmax -inf masking ->
+# -Wnan-infinity-disabled) and miscompiles expm1f overflow to -nan on some targets.
+# -funsafe-math-optimizations is inf/nan-safe and provides the transcendental speedup.
+set(CMAKE_HIP_FLAGS "${CMAKE_HIP_FLAGS} -funsafe-math-optimizations")
+
 if (NOT GGML_CUDA_FA)
     add_compile_definitions(GGML_CUDA_NO_FA)
 endif()
