@@ -24,6 +24,18 @@ static void expect_version(const std::string & description, int expected) {
     }
 }
 
+static void expect_policy(int min_adreno_version, bool load_opencl, bool unload_vulkan) {
+    const ggml_adreno_backend_policy got = ggml_adreno_resolve_backend_policy(min_adreno_version);
+    if (got.load_opencl != load_opencl || got.unload_vulkan != unload_vulkan) {
+        std::printf("FAIL: policy(%d) -> {load_opencl=%d, unload_vulkan=%d} (expected {%d, %d})\n",
+                    min_adreno_version, got.load_opencl, got.unload_vulkan, load_opencl, unload_vulkan);
+        g_failures++;
+    } else {
+        std::printf("ok:   policy(%d) -> {load_opencl=%d, unload_vulkan=%d}\n",
+                    min_adreno_version, got.load_opencl, got.unload_vulkan);
+    }
+}
+
 int main() {
     // Real Adreno descriptions (as reported via the Vulkan device name).
     expect_version("Adreno (TM) 830", 830);   // Samsung S25 (Snapdragon 8 Elite)
@@ -52,6 +64,24 @@ int main() {
     // Adreno version" by the caller; distinct from "not Adreno").
     expect_version("Adreno (TM)", -3);
     expect_version("Adreno", -3);
+
+    // Backend policy {load_opencl, unload_vulkan} per Adreno generation.
+    // Non-Adreno / no GPU -> no OpenCL, keep Vulkan/CPU.
+    expect_policy(-2, false, false);   // null Vulkan backend
+    expect_policy(-1, false, false);   // no Adreno GPU (e.g. Mali)
+    // Adreno 7xx / 8xx -> load OpenCL (Vulkan kept; consumer picks OpenCL).
+    expect_policy(830, true, false);
+    expect_policy(750, true, false);
+    expect_policy(730, true, false);
+    expect_policy(701, true, false);
+    // Boundary: exactly 700 is NOT > 700 -> falls to the 601..700 tier (CPU only).
+    expect_policy(700, false, true);
+    // Adreno 601..700 -> CPU only (unload Vulkan, no OpenCL).
+    expect_policy(660, false, true);
+    expect_policy(601, false, true);
+    // Boundary: exactly 600 is NOT > 600 -> old-Adreno tier (load OpenCL).
+    expect_policy(600, true, false);
+    expect_policy(500, true, false);
 
     if (g_failures == 0) {
         std::printf("All Adreno-version parsing cases passed.\n");

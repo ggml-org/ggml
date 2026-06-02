@@ -748,19 +748,19 @@ void ggml_backend_load_all_from_path(const char * dir_path) {
     {
         ggml_backend_reg_t vulkan_backend = ggml_backend_reg_by_name("vulkan");
         const int min_adreno_version = ggml_backend_min_adreno_version(vulkan_backend);
+        const ggml_adreno_backend_policy policy = ggml_adreno_resolve_backend_policy(min_adreno_version);
+        load_opencl = policy.load_opencl;
         if (min_adreno_version <= 0) {
             GGML_LOG_INFO("%s: no Adreno GPU detected (%d); skipping OpenCL, relying on Vulkan/CPU\n",
                           __func__, min_adreno_version);
-            load_opencl = false;
-        } else if (min_adreno_version > 700) {
-            GGML_LOG_INFO("%s: Adreno %d detected; keeping OpenCL backend\n", __func__, min_adreno_version);
-        } else if (min_adreno_version > 600) {
+        } else if (policy.unload_vulkan) {
             GGML_LOG_INFO("%s: Adreno %d detected; removing Vulkan and relying on CPU only\n",
                           __func__, min_adreno_version);
             if (vulkan_backend != nullptr) {
                 ggml_backend_unload(vulkan_backend);
             }
-            load_opencl = false;
+        } else if (policy.load_opencl) {
+            GGML_LOG_INFO("%s: Adreno %d detected; keeping OpenCL backend\n", __func__, min_adreno_version);
         }
     }
 #endif // __ANDROID__
