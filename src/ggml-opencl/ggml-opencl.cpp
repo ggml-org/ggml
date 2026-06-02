@@ -401,6 +401,10 @@ struct ggml_backend_opencl_device_context {
     ggml_backend_buffer_type buffer_type;
 
     cl_context context = nullptr;
+
+    // "<name> (<version>)" for the device description: CL_DEVICE_NAME omits the
+    // Adreno generation that CL_DEVICE_VERSION carries.
+    std::string device_description;
 };
 
 // backend context
@@ -3384,6 +3388,8 @@ static std::vector<ggml_backend_device> ggml_opencl_probe_devices(ggml_backend_r
             /*.backend_ctx      =*/nullptr,
             /*.buffer_type      =*/{},
             /*.context          =*/shared_context,
+            // name + version so consumers can read the Adreno gen (only the version carries it)
+            /*.device_description =*/ std::string(dev->name) + " (" + std::string(dev->version) + ")",
         });
 
         found_devices.push_back(ggml_backend_device{
@@ -5019,8 +5025,11 @@ inline bool use_adreno_kernels(const ggml_backend_opencl_context *backend_ctx, c
         threshold_ne0 = 128;
         threshold_ne1 = 128;
     }
+    // The Adreno weight-transpose path requires ne[0]%32==0 and ne[1]%4==0;
+    // tensors that violate it (e.g. an odd vocab+1 head) use the generic kernels.
     return tensor->ne[0] >= threshold_ne0 && tensor->ne[1] >= threshold_ne1 &&
-            tensor->ne[2] == 1 && tensor->ne[3] == 1;
+            tensor->ne[2] == 1 && tensor->ne[3] == 1 &&
+            tensor->ne[0] % 32 == 0 && tensor->ne[1] % 4 == 0;
 }
 
 inline bool use_adreno_moe_kernels(const ggml_backend_opencl_context *backend_ctx, const ggml_tensor *tensor) {
@@ -6730,7 +6739,10 @@ static const char * ggml_backend_opencl_device_get_name(ggml_backend_dev_t dev) 
 
 static const char * ggml_backend_opencl_device_get_description(ggml_backend_dev_t dev) {
     ggml_backend_opencl_device_context *dev_ctx = (ggml_backend_opencl_device_context *) dev->context;
-    return dev_ctx->device_name.c_str();
+    // name + version (the version carries the Adreno generation; the name does not)
+    return dev_ctx->device_description.empty()
+        ? dev_ctx->device_name.c_str()
+        : dev_ctx->device_description.c_str();
 }
 
 static void ggml_backend_opencl_device_get_memory(ggml_backend_dev_t dev, size_t * free, size_t * total) {
