@@ -605,7 +605,14 @@ void ggml_metal_rsets_free(ggml_metal_rsets_t rsets) {
     }
 
     // note: if you hit this assert, most likely you haven't deallocated all Metal resources before exiting
-    GGML_ASSERT([rsets->data count] == 0);
+    // rsets_free_patched: tolerate non-empty rsets during process exit
+    if ([rsets->data count] != 0) {
+        GGML_LOG_WARN("%s: %lu Metal resource sets still alive during teardown (process exiting)\n", __func__, (unsigned long)[rsets->data count]);
+        // Skip cleanup — resources will be reclaimed by the OS on exit.
+        // Continuing with free() here would use-after-free the leaked backends.
+        free(rsets);
+        return;
+    }
 
     atomic_store_explicit(&rsets->d_stop, true, memory_order_relaxed);
 

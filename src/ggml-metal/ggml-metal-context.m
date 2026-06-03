@@ -71,6 +71,9 @@ struct ggml_metal {
     // abort ggml_metal_graph_compute if callback returns true
     ggml_abort_callback abort_callback;
     void *              abort_callback_data;
+
+    // set by ggml_metal_synchronize when a command buffer fails, checked by graph_compute
+    bool synchronize_failed;
 };
 
 ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
@@ -232,7 +235,8 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
                 if (status == MTLCommandBufferStatusError) {
                     GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
                 }
-                GGML_ABORT("fatal error");
+                ctx->synchronize_failed = true;
+                return;
             }
         }
     }
@@ -248,7 +252,13 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
                 if (status == MTLCommandBufferStatusError) {
                     GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
                 }
-                GGML_ABORT("fatal error");
+                // release already-checked ext buffers before returning
+                for (size_t j = 0; j < i; ++j) {
+                    [ctx->cmd_bufs_ext[j] release];
+                }
+                [ctx->cmd_bufs_ext removeAllObjects];
+                ctx->synchronize_failed = true;
+                return;
             }
 
             [cmd_buf release];
@@ -357,6 +367,13 @@ void ggml_metal_get_tensor_async(ggml_metal_t ctx, const struct ggml_tensor * te
 }
 
 enum ggml_status ggml_metal_graph_compute(ggml_metal_t ctx, struct ggml_cgraph * gf) {
+    // if a previous synchronize detected a command buffer failure, propagate the error
+    if (ctx->synchronize_failed) {
+        GGML_LOG_ERROR("%s: previous Metal command buffer failure detected, returning GGML_STATUS_FAILED\n", __func__);
+        ctx->synchronize_failed = false;
+        return GGML_STATUS_FAILED;
+    }
+
     // number of nodes encoded by the main thread (empirically determined)
     const int n_main = 64;
 
@@ -515,6 +532,17 @@ enum ggml_status ggml_metal_graph_compute(ggml_metal_t ctx, struct ggml_cgraph *
             [ctx->capture_scope endScope];
             [[MTLCaptureManager sharedCaptureManager] stopCapture];
         }
+    }
+
+    // Synchronously verify this graph's command buffers so a GPU failure
+    // surfaces as GGML_STATUS_FAILED for THIS compute, rather than only at the
+    // next graph_compute (which never runs for the final graph, letting
+    // corrupted output pass as success). Callers read results right after each
+    // compute — forcing a synchronize anyway — so this adds negligible latency.
+    ggml_metal_synchronize(ctx);
+    if (ctx->synchronize_failed) {
+        ctx->synchronize_failed = false;
+        return GGML_STATUS_FAILED;
     }
 
     return GGML_STATUS_SUCCESS;
