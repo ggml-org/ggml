@@ -9312,7 +9312,7 @@ static void ggml_cl_leaky_relu(ggml_backend_t backend, const ggml_tensor * src0,
 
     cl_kernel kernel;
     int n = ggml_nelements(dst);
-    if (n % 4 == 0) {
+    if (n % 4 == 0 && offset0 % 16 == 0 && offsetd % 16 == 0) {
         kernel = backend_ctx->kernel_leaky_relu_f32_4;
         n /= 4;
     } else {
@@ -9352,7 +9352,7 @@ static void ggml_cl_sin(ggml_backend_t backend, const ggml_tensor * src0, const 
 
     cl_kernel kernel;
     int n = ggml_nelements(dst);
-    if (n % 4 == 0) {
+    if (n % 4 == 0 && offset0 % 16 == 0 && offsetd % 16 == 0) {
         kernel = backend_ctx->kernel_sin_f32_4;
         n /= 4;
     } else {
@@ -9391,7 +9391,7 @@ static void ggml_cl_cos(ggml_backend_t backend, const ggml_tensor * src0, const 
 
     cl_kernel kernel;
     int n = ggml_nelements(dst);
-    if (n % 4 == 0) {
+    if (n % 4 == 0 && offset0 % 16 == 0 && offsetd % 16 == 0) {
         kernel = backend_ctx->kernel_cos_f32_4;
         n /= 4;
     } else {
@@ -9430,7 +9430,7 @@ static void ggml_cl_abs(ggml_backend_t backend, const ggml_tensor * src0, const 
 
     cl_kernel kernel;
     int n = ggml_nelements(dst);
-    if (n % 4 == 0) {
+    if (n % 4 == 0 && offset0 % 16 == 0 && offsetd % 16 == 0) {
         kernel = backend_ctx->kernel_abs_f32_4;
         n /= 4;
     } else {
@@ -9469,7 +9469,7 @@ static void ggml_cl_elu(ggml_backend_t backend, const ggml_tensor * src0, const 
 
     cl_kernel kernel;
     int n = ggml_nelements(dst);
-    if (n % 4 == 0) {
+    if (n % 4 == 0 && offset0 % 16 == 0 && offsetd % 16 == 0) {
         kernel = backend_ctx->kernel_elu_f32_4;
         n /= 4;
     } else {

@@ -159,9 +159,9 @@ set(GGML_OPENCL_KERNELS
     softplus
     abs
     cos
+    elu
     leaky_relu
     sin
-    elu
     pad
     repeat
     mul_mat_f16_f32

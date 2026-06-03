@@ -1,5 +1,3 @@
-#pragma OPENCL EXTENSION cl_khr_fp16 : enable
-
 // ELU(x) = x > 0 ? x : expm1(x)   (alpha = 1; matches ggml CPU op_elu)
 kernel void kernel_elu_f32(
         global const float * src0,

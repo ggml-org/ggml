@@ -1,5 +1,3 @@
-#pragma OPENCL EXTENSION cl_khr_fp16 : enable
-
 kernel void kernel_abs_f32(
         global const float * src0,
         ulong                offset0,
