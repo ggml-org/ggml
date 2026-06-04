@@ -401,6 +401,10 @@ struct ggml_backend_opencl_device_context {
     ggml_backend_buffer_type buffer_type;
 
     cl_context context = nullptr;
+
+    // "<name> (<version>)" for the device description: CL_DEVICE_NAME omits the
+    // Adreno generation that CL_DEVICE_VERSION carries.
+    std::string device_description;
 };
 
 // backend context
@@ -3479,6 +3483,8 @@ static std::vector<ggml_backend_device> ggml_opencl_probe_devices(ggml_backend_r
             /*.backend_ctx      =*/nullptr,
             /*.buffer_type      =*/{},
             /*.context          =*/shared_context,
+            // name + version so consumers can read the Adreno gen (only the version carries it)
+            /*.device_description =*/ std::string(dev->name) + " (" + std::string(dev->version) + ")",
         });
 
         found_devices.push_back(ggml_backend_device{
@@ -6835,7 +6841,10 @@ static const char * ggml_backend_opencl_device_get_name(ggml_backend_dev_t dev) 
 
 static const char * ggml_backend_opencl_device_get_description(ggml_backend_dev_t dev) {
     ggml_backend_opencl_device_context *dev_ctx = (ggml_backend_opencl_device_context *) dev->context;
-    return dev_ctx->device_name.c_str();
+    // name + version (the version carries the Adreno generation; the name does not)
+    return dev_ctx->device_description.empty()
+        ? dev_ctx->device_name.c_str()
+        : dev_ctx->device_description.c_str();
 }
 
 static void ggml_backend_opencl_device_get_memory(ggml_backend_dev_t dev, size_t * free, size_t * total) {

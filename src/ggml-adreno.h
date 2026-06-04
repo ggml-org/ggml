@@ -28,10 +28,14 @@
 // are all recognised (a small hardening over the raw substring check in
 // qvac-fabric-llm.cpp; it never produces a false negative for Adreno).
 //
-// Limitation (inherited from qvac-fabric-llm.cpp): the first digit run wins, so
-// a non-numeric model name like "Adreno X1-85" would parse as 1. That naming is
-// Snapdragon-X (Windows-on-ARM) only; Android phone Adrenos are 5xx/6xx/7xx/8xx,
-// which parse correctly.
+// The model number is anchored to the "adreno" marker and must be a 3-4 digit
+// generation, so the API-version noise in a combined OpenCL device description
+// like "qualcomm adreno(tm) (opencl 3.0 adreno(tm) 740)" is skipped and the real
+// 740 is returned (CL_DEVICE_VERSION now embeds the gen -- see ggml-opencl's
+// device_description). Limitation: a non-numeric model name like "Adreno X1-85"
+// has no 3-digit token and returns -3. That naming is Snapdragon-X
+// (Windows-on-ARM) only; Android phone Adrenos are 5xx/6xx/7xx/8xx, which parse
+// correctly.
 inline int ggml_adreno_version_from_description(const std::string & gpu_description) {
     std::string lowered = gpu_description;
     std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
@@ -42,9 +46,9 @@ inline int ggml_adreno_version_from_description(const std::string & gpu_descript
         return -1;
     }
 
-    static const std::regex digits_regex(R"((\d+))");
+    static const std::regex adreno_regex(R"(dreno\D*?(\d{3,4}))");
     std::smatch matches;
-    if (std::regex_search(lowered, matches, digits_regex) && matches.size() > 1) {
+    if (std::regex_search(lowered, matches, adreno_regex) && matches.size() > 1) {
         try {
             return std::stoi(matches[1].str());
         } catch (const std::exception &) {
