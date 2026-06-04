@@ -49,6 +49,16 @@ int main() {
     expect_version("ADRENO 830", 830);
     expect_version("adreno 612", 612);
 
+    // Combined OpenCL device description: ggml-opencl reports
+    // "<CL_DEVICE_NAME> (<CL_DEVICE_VERSION>)", where CL_DEVICE_VERSION embeds the
+    // gen after an "OpenCL <api>" prefix. The "3.0" API version must be skipped so
+    // the real generation (not 3) is returned.
+    expect_version("QUALCOMM Adreno(TM) (OpenCL 3.0 Adreno(TM) 740)", 740);
+    expect_version("QUALCOMM Adreno(TM) (OpenCL 3.0 Adreno(TM) 830)", 830);
+    expect_version("QUALCOMM Adreno(TM) (OpenCL 3.0 Adreno(TM) 750)", 750);
+    // Bare OpenCL CL_DEVICE_NAME (no version, so no 3-digit gen) -> -3, not 3.
+    expect_version("QUALCOMM Adreno(TM)", -3);
+
     // Non-Adreno GPUs -> -1 (not Adreno). These are the devices that must keep
     // using Vulkan / Metal, never OpenCL.
     expect_version("Mali-G715", -1);          // Pixel 9 (proven to work on Vulkan)

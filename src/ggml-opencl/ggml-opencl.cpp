@@ -5126,7 +5126,6 @@ inline bool use_adreno_kernels(const ggml_backend_opencl_context *backend_ctx, c
         threshold_ne0 = 128;
         threshold_ne1 = 128;
     }
-
     // The Adreno transpose + GEMM/GEMV kernels require K (ne0) % 32 and M (ne1) % 4
     // (asserted in the repack path); unaligned weights (e.g. some S3Gen projections)
     // fall back to the generic q4_0 kernels. This gate is shared by repack + compute.
