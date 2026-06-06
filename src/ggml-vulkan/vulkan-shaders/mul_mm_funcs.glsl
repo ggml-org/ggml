@@ -1,3 +1,21 @@
+#if defined(DATA_A_E4M3)
+// decode an e4m3 (OCP e4m3fn) byte to float: 1 sign, 4 exp (bias 7), 3 mantissa.
+float e4m3_decode(uint b) {
+    const uint s   = (b >> 7) & 0x1u;
+    const int  exp = int((b >> 3) & 0xFu);
+    const int  man = int(b & 0x7u);
+    float v;
+    if (exp == 0) {
+        v = float(man) * exp2(-9.0);                       // subnormal: man * 2^-9
+    } else if (exp == 0xF && man == 0x7) {
+        v = 0.0;                                           // e4m3fn NaN (weights won't hit this)
+    } else {
+        v = (1.0 + float(man) / 8.0) * exp2(float(exp - 7));
+    }
+    return (s != 0u) ? -v : v;
+}
+#endif
+
 void load_a_to_shmem(const uint pos_a, const uint row, const uint col, const uint idx_m, const uint block, const uint end_k) {
 #if defined(DATA_A_F32) || defined(DATA_A_F16)
 #if LOAD_VEC_A == 8
@@ -130,6 +148,30 @@ void load_a_to_shmem(const uint pos_a, const uint row, const uint col, const uin
 
             buf_a[buf_idx    ] = FLOAT_TYPEV2(v.xy);
             buf_a[buf_idx + 1] = FLOAT_TYPEV2(v.zw);
+#elif defined(DATA_A_E4M3)
+            const uint idx = pos_a + col * p.stride_a / LOAD_VEC_A + row;
+            const uint buf_idx = col * SHMEM_STRIDE + row * LOAD_VEC_A / 2;
+#ifdef DATA_A_E4M3_NATIVE
+            // Native fp8: load 4 raw fp8 quants/idx into shared unscaled (fp8 WMMA); d applied in epilogue.
+            const uint ib  = idx / 8;
+            const uint iqs = (idx & 0x07) * 4;   // 0,4,8,...,28 within the 32-quant block
+            buf_a[buf_idx    ] = FLOAT_TYPEV2(data_a[ib].qs[iqs + 0], data_a[ib].qs[iqs + 1]);
+            buf_a[buf_idx + 1] = FLOAT_TYPEV2(data_a[ib].qs[iqs + 2], data_a[ib].qs[iqs + 3]);
+#else
+            // Portable: software-decode 4 fp8 quants to f16 and apply the per-row scale d at load.
+            // Read qs through the single uint8 block_e4m3 view (4 fp8 bytes per idx).
+            const uint ib  = idx / 8;
+            const uint iqs = (idx & 0x07) * 4;   // 4 fp8 bytes per idx: qs[iqs..iqs+3]
+
+            const float d = float(data_a[ib].d);
+            const vec4 v = vec4(e4m3_decode(uint(data_a[ib].qs[iqs + 0])),
+                                e4m3_decode(uint(data_a[ib].qs[iqs + 1])),
+                                e4m3_decode(uint(data_a[ib].qs[iqs + 2])),
+                                e4m3_decode(uint(data_a[ib].qs[iqs + 3]))) * d;
+
+            buf_a[buf_idx    ] = FLOAT_TYPEV2(v.xy);
+            buf_a[buf_idx + 1] = FLOAT_TYPEV2(v.zw);
+#endif
 #elif defined(DATA_A_Q1_0)
             const uint idx = pos_a + col * p.stride_a / LOAD_VEC_A + row;
             const uint buf_idx = col * SHMEM_STRIDE + row * LOAD_VEC_A / 2;

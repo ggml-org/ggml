@@ -123,6 +123,15 @@ if (Vulkan_FOUND)
         list(APPEND VULKAN_SHADER_GEN_CMAKE_ARGS -DGGML_VULKAN_SHADER_DEBUG_INFO=ON)
     endif()
 
+    # Opt-in native fp8 (e4m3) cooperative-matrix matmul (~2x f16 on RDNA4). OFF by default: the
+    # portable dequant-to-f16 e4m3 path is used. Requires an RDNA4 GPU AND a glslang that correctly
+    # compiles the fp8 cooperative-matrix shader (validated: glslang main @ 98beacd, --target-env
+    # vulkan1.2) — stock/older glslang may compile it but produce NaN at runtime, so this stays opt-in.
+    if (GGML_VULKAN_FP8_NATIVE)
+        add_compile_definitions(GGML_VULKAN_FP8_NATIVE)
+        list(APPEND VULKAN_SHADER_GEN_CMAKE_ARGS -DGGML_VULKAN_FP8_NATIVE=ON)
+    endif()
+
     if (GGML_VULKAN_VALIDATE)
         add_compile_definitions(GGML_VULKAN_VALIDATE)
     endif()

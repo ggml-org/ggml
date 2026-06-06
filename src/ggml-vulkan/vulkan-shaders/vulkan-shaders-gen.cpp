@@ -521,6 +521,15 @@ void matmul_shaders(bool fp16, MatMulIdType matmul_id_type, bool coopmat, bool c
         {"FLOAT_TYPEV4", FLOAT_TYPE(4, "f16")},
         {"FLOAT_TYPEV8", FLOAT_TYPE(8, "f16")},
     };
+#ifdef GGML_VULKAN_FP8_NATIVE
+    // Opt-in native fp8: weights are raw floate4m3_t fed into the fp8 cooperative-matrix.
+    const std::map<std::string, std::string> float_type_dict_e4m3 = {
+        {"FLOAT_TYPE",   "floate4m3_t"},
+        {"FLOAT_TYPEV2", "fe4m3vec2"},
+        {"FLOAT_TYPEV4", "fe4m3vec4"},
+        {"FLOAT_TYPEV8", "fe4m3vec4"},   // unused (no 8-wide fp8); fe4m3vec4 to keep the f16 LOAD_VEC=8 path off
+    };
+#endif
 
     // Shaders with f16 B_TYPE
     string_to_spv(shader_name + "_f32_f16",         source_name, merge_maps(merge_maps(base_dict, float_type_dict_f16), {{"DATA_A_F32", "1"},                                                     {"B_TYPE", "float16_t"},        {"D_TYPE", "float"}, }), fp16, coopmat, coopmat2, f16acc);
@@ -528,6 +537,24 @@ void matmul_shaders(bool fp16, MatMulIdType matmul_id_type, bool coopmat, bool c
 
     string_to_spv(shader_name + "_f16",             source_name, merge_maps(merge_maps(base_dict, float_type_dict_f16), {{"DATA_A_F16", "1"},                                                     {"B_TYPE", "float16_t"},        {"D_TYPE", "float"}}), fp16, coopmat, coopmat2, f16acc);
     string_to_spv(shader_name + "_f16_aligned",     source_name, merge_maps(merge_maps(base_dict, float_type_dict_f16), {{"DATA_A_F16", "1"}, {"LOAD_VEC_A", load_vec}, {"LOAD_VEC_B", load_vec}, {"B_TYPE", aligned_b_type_f16}, {"D_TYPE", "float"}, {"ALIGNED", "1"}}), fp16, coopmat, coopmat2, f16acc);
+
+    // block_e4m3 (QUANT_K=32 like q8_0, but fp8 quants). B_TYPE=float: the mm dispatch keeps f32 src1
+    // (y_f32_kernel) for quant src0, so the shader consumes f32 activations directly (a f16-B shader fed
+    // f32 bytes -> NaN). LOAD_VEC_A=4 matches the q8_0 block addressing the e4m3 load mirrors.
+    if (coopmat && !f16acc && shader_name == "matmul") {
+#ifdef GGML_VULKAN_FP8_NATIVE
+        // Opt-in native fp8 path (-DGGML_VULKAN_FP8_NATIVE): FLOAT_TYPE=floate4m3_t, raw fp8 fed straight
+        // into the fp8 cooperative-matrix (~2x f16 on RDNA4). Requires a glslang that supports the fp8
+        // GLSL extension GL_EXT_float_e4m3 (validated: glslang main @ 98beacd) + an RDNA4 GPU.
+        string_to_spv(shader_name + "_e4m3",         source_name, merge_maps(merge_maps(base_dict, float_type_dict_e4m3), {{"DATA_A_E4M3", "1"}, {"DATA_A_E4M3_NATIVE", "1"}, {"LOAD_VEC_A", "4"},                       {"B_TYPE", "float"}, {"D_TYPE", "float"}}), fp16, coopmat, coopmat2, f16acc);
+        string_to_spv(shader_name + "_e4m3_aligned", source_name, merge_maps(merge_maps(base_dict, float_type_dict_e4m3), {{"DATA_A_E4M3", "1"}, {"DATA_A_E4M3_NATIVE", "1"}, {"LOAD_VEC_A", "4"}, {"LOAD_VEC_B", "4"}, {"B_TYPE", "vec4"}, {"D_TYPE", "float"}, {"ALIGNED", "1"}}), fp16, coopmat, coopmat2, f16acc);
+#else
+        // Portable default: dequantize qs*d -> f16 in shared, standard f16 cooperative-matrix. No fp8
+        // GLSL extension -> compiles with stock glslc, runs on any f16-coopmat Vulkan stack.
+        string_to_spv(shader_name + "_e4m3",         source_name, merge_maps(merge_maps(base_dict, float_type_dict_f16), {{"DATA_A_E4M3", "1"}, {"LOAD_VEC_A", "4"},                          {"B_TYPE", "float"},            {"D_TYPE", "float"}}), fp16, coopmat, coopmat2, f16acc);
+        string_to_spv(shader_name + "_e4m3_aligned", source_name, merge_maps(merge_maps(base_dict, float_type_dict_f16), {{"DATA_A_E4M3", "1"}, {"LOAD_VEC_A", "4"}, {"LOAD_VEC_B", load_vec}, {"B_TYPE", aligned_b_type_f32}, {"D_TYPE", "float"}, {"ALIGNED", "1"}}), fp16, coopmat, coopmat2, f16acc);
+#endif
+    }
 
     // bf16
     {

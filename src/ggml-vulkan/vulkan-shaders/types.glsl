@@ -34,6 +34,33 @@
 #define A_TYPE_PACKED32 f16vec2
 #endif
 
+// e4m3: q8_0-shaped block (fp16 `d` + 32 e4m3 quants, 34 bytes). `d` is the per-row scale (one absmax
+// per output row, replicated into each block); per-block scaling is a follow-up.
+#if defined(DATA_A_E4M3) && defined(DATA_A_E4M3_NATIVE)
+// Native fp8 path (opt-in, GGML_VULKAN_FP8_NATIVE): qs are raw floate4m3_t fed straight into the
+// fp8 cooperative-matrix. floate4m3_t needs GL_EXT_float_e4m3, enabled only by the e4m3 shaders, so
+// this struct must stay inside the DATA_A_E4M3 guard (defining it unconditionally breaks other shaders).
+struct block_e4m3
+{
+    float16_t   d;
+    floate4m3_t qs[32];
+};
+#define QUANT_K 32
+#define QUANT_R 1
+#define A_TYPE block_e4m3
+#elif defined(DATA_A_E4M3)
+// Portable default: raw uint8 quants, software-decoded to d * e4m3_decode(qs) -> f16 in the load
+// (no fp8 extension; standard f16 cooperative-matrix). Single uint8 view (no packed16 alias needed).
+struct block_e4m3
+{
+    float16_t d;
+    uint8_t qs[32];
+};
+#define QUANT_K 32
+#define QUANT_R 1
+#define A_TYPE block_e4m3
+#endif
+
 #if defined(DATA_A_BF16)
 #define QUANT_K 1
 #define QUANT_R 1

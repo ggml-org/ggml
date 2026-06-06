@@ -3,6 +3,13 @@
 #extension GL_EXT_control_flow_attributes : enable
 #extension GL_EXT_shader_16bit_storage : require
 
+#ifdef DATA_A_E4M3
+#ifdef DATA_A_E4M3_NATIVE
+#extension GL_EXT_float_e4m3 : require   // native fp8 path only (opt-in); portable path decodes uint8
+#endif
+#extension GL_EXT_shader_8bit_storage : require
+#endif
+
 #ifdef FLOAT16
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 #endif
@@ -132,6 +139,9 @@ shared FLOAT_TYPEV2 buf_b[BN * SHMEM_STRIDE];
 
 #ifdef COOPMAT
 shared ACC_TYPE coopmat_stage[TM * TN * NUM_WARPS];
+#ifdef DATA_A_E4M3_NATIVE
+shared float d_w_sh[BM];   // native fp8: per-row weight scales applied in the epilogue
+#endif
 #endif
 
 #include "mul_mm_id_funcs.glsl"
@@ -349,6 +359,15 @@ void main() {
         barrier();
     }
 
+#if defined(COOPMAT) && defined(DATA_A_E4M3_NATIVE)
+    // native fp8: load per-row weight scales d_w once into shared, applied in the epilogue.
+    for (uint lr = gl_LocalInvocationID.x; lr < BM; lr += gl_WorkGroupSize.x) {
+        const uint gr = ir * BM + lr;
+        d_w_sh[lr] = (gr < p.M) ? float(data_a[batch_idx_a * (p.batch_stride_a / QUANT_K) + gr * (p.stride_a / QUANT_K)].d) : 0.0;
+    }
+    barrier();
+#endif
+
 #if defined(ACC_TYPE_MAX)
 #ifdef COOPMAT
     [[unroll]] for (uint j = 0; j < cms_per_row * cms_per_col; j++) {
@@ -393,12 +412,22 @@ void main() {
     }
 #else
     const bool is_aligned = p.stride_d % 4 == 0;  // Assumption: D_TYPE == float
+#ifdef DATA_A_E4M3_NATIVE
+    // Native fp8: weights enter the matmul unscaled, so apply the per-row scale d_w in the epilogue.
+    // block_e4m3 is per-row quantized (all blocks in a row share d) -> row wr's scale = d_w_sh[wr].
+    #define E4M3_DW(wr) (d_w_sh[(wr) - ir * BM])
+    const bool e4m3_use_direct = false;   // staged path: scale each output element
+#else
+    // Portable dequant path (and all non-e4m3 types): scale already applied at load -> no epilogue scale.
+    #define E4M3_DW(wr) (1.0)
+    const bool e4m3_use_direct = true;
+#endif
 
     [[unroll]] for (uint cm_row = 0; cm_row < cms_per_row; cm_row++) {
         [[unroll]] for (uint cm_col = 0; cm_col < cms_per_col; cm_col++) {
             const bool is_in_bounds = dr + (cm_row + 1) * TM <= p.M && dc + (cm_col + 1) * TN <= p.N;
 
-            if (is_aligned && is_in_bounds) {
+            if (e4m3_use_direct && is_aligned && is_in_bounds) {
                 // Full coopMat is within bounds and stride_d is aligned with 16B
                 coopmat<D_TYPE, gl_ScopeSubgroup, TM, TN, gl_MatrixUseAccumulator> cm_dtype = coopmat<D_TYPE, gl_ScopeSubgroup, TM, TN, gl_MatrixUseAccumulator>(sums[cm_col * cms_per_row + cm_row]);
                 coopMatStore(cm_dtype, data_d, offsets + (dc + cm_col * TN) * p.stride_d + dr + cm_row * TM, p.stride_d, gl_CooperativeMatrixLayoutColumnMajor);
@@ -408,7 +437,7 @@ void main() {
 
                 controlBarrier(gl_ScopeSubgroup, gl_ScopeSubgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
                 [[unroll]] for (uint col = 0; col < TN; col += storestride) {
-                    data_d[offsets + (dc + cm_col * TN + col + store_c) * p.stride_d + dr + cm_row * TM + store_r] = D_TYPE(coopmat_stage[warp_i * TM * TN + (col + store_c) * TM + store_r]);
+                    data_d[offsets + (dc + cm_col * TN + col + store_c) * p.stride_d + dr + cm_row * TM + store_r] = D_TYPE(float(coopmat_stage[warp_i * TM * TN + (col + store_c) * TM + store_r]) * E4M3_DW(dr + cm_row * TM + store_r));
                 }
                 controlBarrier(gl_ScopeSubgroup, gl_ScopeSubgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
             } else if (dr + cm_row * TM < p.M && dc + cm_col * TN < p.N) {
@@ -418,7 +447,7 @@ void main() {
                 controlBarrier(gl_ScopeSubgroup, gl_ScopeSubgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);
                 [[unroll]] for (uint col = 0; col < TN; col += storestride) {
                     if (dr + cm_row * TM + store_r < p.M && dc + cm_col * TN + col + store_c < p.N) {
-                        data_d[offsets + (dc + cm_col * TN + col + store_c) * p.stride_d + dr + cm_row * TM + store_r] = D_TYPE(coopmat_stage[warp_i * TM * TN + (col + store_c) * TM + store_r]);
+                        data_d[offsets + (dc + cm_col * TN + col + store_c) * p.stride_d + dr + cm_row * TM + store_r] = D_TYPE(float(coopmat_stage[warp_i * TM * TN + (col + store_c) * TM + store_r]) * E4M3_DW(dr + cm_row * TM + store_r));
                     }
                 }
                 controlBarrier(gl_ScopeSubgroup, gl_ScopeSubgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease);

@@ -290,6 +290,7 @@ enum vk_device_architecture {
     AMD_RDNA1,
     AMD_RDNA2,
     AMD_RDNA3,
+    AMD_RDNA4,
     INTEL_XE2,
     NVIDIA_PRE_TURING,
     NVIDIA_TURING,
@@ -304,6 +305,7 @@ static vk_device_architecture get_device_architecture(const vk::PhysicalDevice& 
         bool amd_shader_core_properties = false;
         bool integer_dot_product = false;
         bool subgroup_size_control = false;
+        bool shader_float8 = false;
 
         for (const auto& properties : ext_props) {
             if (strcmp("VK_AMD_shader_core_properties", properties.extensionName) == 0) {
@@ -312,6 +314,8 @@ static vk_device_architecture get_device_architecture(const vk::PhysicalDevice& 
                 integer_dot_product = true;
             } else if (strcmp("VK_EXT_subgroup_size_control", properties.extensionName) == 0) {
                 subgroup_size_control = true;
+            } else if (strcmp("VK_EXT_shader_float8", properties.extensionName) == 0) {
+                shader_float8 = true;
             }
         }
 
@@ -339,6 +343,11 @@ static vk_device_architecture get_device_architecture(const vk::PhysicalDevice& 
                 return vk_device_architecture::AMD_RDNA1;
             }
             if (integer_dot_props.integerDotProduct4x8BitPackedMixedSignednessAccelerated) {
+                // RDNA4 (gfx12) adds fp8 WMMA, surfaced as VK_EXT_shader_float8; RDNA3 (gfx11)
+                // has WMMA but no fp8 matrix support, so the extension is absent there.
+                if (shader_float8) {
+                    return vk_device_architecture::AMD_RDNA4;
+                }
                 return vk_device_architecture::AMD_RDNA3;
             }
             return vk_device_architecture::AMD_RDNA2;
@@ -3437,6 +3446,7 @@ static bool ggml_vk_matmul_int_shmem_support(const vk_device& device, const std:
 
     uint32_t block_a_size = 0;
     switch (src0_type) {
+        case GGML_TYPE_E4M3:    block_a_size = 32;                                                            break; // 32 fp8 bytes (f16-style path, 1 byte/elem)
         case GGML_TYPE_Q4_0:    block_a_size = std430_size({{16, 4}, {fp_size,  fp_align}});                  break; // qs[16/4] + dm
         case GGML_TYPE_Q4_1:    block_a_size = std430_size({{16, 4}, {fp2_size, fp2_align}});                 break; // qs[16/4] + dm(vec2)
         case GGML_TYPE_Q5_0:    block_a_size = std430_size({{16, 4}, {4, 4}, {fp_size,  fp_align}});          break; // qs[16/4] + qh + dm
@@ -4040,6 +4050,17 @@ static void ggml_vk_load_shaders(vk_device& device) {
         CREATE_MM(GGML_TYPE_F32, pipeline_matmul_f32_f16, matmul_f32_f16, , wg_denoms, warptile, vk_mat_mat_push_constants, 3, );
         CREATE_MM2(GGML_TYPE_F16, pipeline_matmul_f16, matmul_f16, wg_denoms, warptile, vk_mat_mat_push_constants, 3, );
         CREATE_MM2(GGML_TYPE_F16, pipeline_matmul_f16_f32, matmul_f16_f32, wg_denoms, warptile, vk_mat_mat_push_constants, 3, );
+        // e4m3 (block quant). Uses the mmq warptile/wg_denoms so the BK spec-constant = 32 (block size);
+        // the f16 `warptile` leaves BK at the default 16 -> NaN.
+#ifdef GGML_VULKAN_FP8_NATIVE
+        // Native fp8 path: fp8 cooperative-matrix is RDNA4-only.
+        if (device->architecture == vk_device_architecture::AMD_RDNA4) {
+            CREATE_MM(GGML_TYPE_E4M3, pipeline_dequant_mul_mat_mat_f16[GGML_TYPE_E4M3].f32acc, matmul_e4m3, , mmq_wg_denoms, warptile_mmq, vk_mat_mat_push_constants, 3, );
+        }
+#else
+        // Portable dequant->f16 path: standard f16 cooperative-matrix, available on any coopmat device.
+        CREATE_MM(GGML_TYPE_E4M3, pipeline_dequant_mul_mat_mat_f16[GGML_TYPE_E4M3].f32acc, matmul_e4m3, , mmq_wg_denoms, warptile_mmq, vk_mat_mat_push_constants, 3, );
+#endif
 #if defined(GGML_VULKAN_BFLOAT16_GLSLC_SUPPORT)
         if (device->coopmat_bf16_support) {
             CREATE_MM(GGML_TYPE_BF16, pipeline_matmul_bf16, matmul_bf16, , wg_denoms, warptile, vk_mat_mat_push_constants, 3, )
@@ -6616,6 +6637,13 @@ static vk_matmul_pipeline ggml_vk_get_mul_mat_mat_pipeline(ggml_backend_vk_conte
     if (src0_type == GGML_TYPE_BF16 && src1_type == GGML_TYPE_BF16) {
         return ctx->device->pipeline_matmul_bf16;
     }
+    if (src0_type == GGML_TYPE_E4M3 && src1_type != GGML_TYPE_Q8_1) {
+        // e4m3 mul_mat reads the activation as f32 (it has no q8_1/integer-dot MMQ variant). Reject a
+        // Q8_1 query (-> nullptr) so the caller drops the integer-dot quantize_y path and keeps src1 as
+        // f32. Without this, on a build where glslc enables integer-dot, quantize_y quantizes src1 to
+        // q8_1 and feeds it to this f32-reading shader -> NaN.
+        return ctx->device->pipeline_dequant_mul_mat_mat_f16[GGML_TYPE_E4M3].f32acc;
+    }
     if (prec == GGML_PREC_DEFAULT && ctx->device->fp16 && !(ctx->device->coopmat_support && !ctx->device->coopmat_acc_f16_support)) {
         if (src0_type == GGML_TYPE_F16 && src1_type == GGML_TYPE_F32) {
             return ctx->device->pipeline_matmul_f16_f32.f16acc;
@@ -8887,6 +8915,8 @@ static void ggml_vk_mul_mat(ggml_backend_vk_context * ctx, vk_context& subctx, c
     // mul_mat_vec supports batching ne12*ne13 when ne11==1, or treating ne11 as the batch size (up to four)
     // when ne12 and ne13 are one.
     } else if ((dst->ne[1] == 1 || (dst->ne[1] <= mul_mat_vec_max_cols && src1->ne[2] * src1->ne[3] == 1)) &&
+               // e4m3 has no mul_mat_vec (dmmv) pipeline yet — always use the mm path (handles N=1).
+               src0->type != GGML_TYPE_E4M3 &&
                (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || src0->type == GGML_TYPE_BF16 || ggml_is_quantized(src0->type))) {
         ggml_vk_mul_mat_vec_q_f16(ctx, subctx, cgraph, node_idx);
     } else {
@@ -16323,6 +16353,17 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
                     }
                 }
                 switch (src0_type) {
+                    case GGML_TYPE_E4M3:
+#ifdef GGML_VULKAN_FP8_NATIVE
+                        // Native fp8 path: fp8 coopmat WMMA is RDNA4-only.
+                        if (device->architecture != vk_device_architecture::AMD_RDNA4) {
+                            return false;
+                        }
+#else
+                        // Portable dequant->f16 path: standard f16 cooperative-matrix — supported on any
+                        // coopmat device (gated below by the generic mul_mat_{s,m,l} shared-mem checks).
+#endif
+                        break;
                     case GGML_TYPE_F32:
                     case GGML_TYPE_F16:
                     case GGML_TYPE_BF16:
@@ -17084,8 +17125,10 @@ static bool ggml_vk_khr_cooperative_matrix_support(const vk::PhysicalDevicePrope
         return arch == vk_device_architecture::INTEL_XE2;
     case VK_VENDOR_ID_AMD:
         if (driver_props.driverID == vk::DriverId::eAmdProprietary || driver_props.driverID == vk::DriverId::eAmdOpenSource) {
-            // Workaround for AMD proprietary driver reporting support on all GPUs
-            return arch == vk_device_architecture::AMD_RDNA3;
+            // Workaround for AMD proprietary driver reporting support on all GPUs.
+            // RDNA4 (gfx12) keeps the WMMA cooperative-matrix path it inherits from RDNA3;
+            // without RDNA4 here it would be excluded once the arch is detected separately.
+            return arch == vk_device_architecture::AMD_RDNA3 || arch == vk_device_architecture::AMD_RDNA4;
         }
         return true;
     default:
