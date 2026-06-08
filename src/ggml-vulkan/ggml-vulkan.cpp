@@ -4289,9 +4289,14 @@ static void ggml_vk_load_shaders(vk_device& device) {
     }
     uint32_t rm_iq = 2 * rm_kq;
 
-    const bool use_subgroups = device->subgroup_arithmetic && device->architecture != vk_device_architecture::AMD_GCN;
+    // Adreno (Qualcomm) Vulkan miscompiles the mul_mat_vec subgroup-reduction
+    // SPIR-V (createComputePipeline null-derefs); force the shmem-reduction
+    // variant on Qualcomm (mathematically equivalent per the shader source).
+    bool use_subgroups = device->subgroup_arithmetic && device->architecture != vk_device_architecture::AMD_GCN;
+    if (device->vendor_id == VK_VENDOR_ID_QUALCOMM) { use_subgroups = false; }
     // Ensure a subgroup size >= 16 is available
-    const bool use_subgroups16 = use_subgroups && subgroup_min_size_16;
+    bool use_subgroups16 = use_subgroups && subgroup_min_size_16;
+    if (device->vendor_id == VK_VENDOR_ID_QUALCOMM) { use_subgroups16 = false; }
 
     const uint32_t subgroup_size = (device->vendor_id == VK_VENDOR_ID_INTEL && device->subgroup_size_control && device->subgroup_min_size <= 16 && device->subgroup_max_size >= 16) ? 16 : device->subgroup_size;
     const uint32_t subgroup_size16 = std::max(subgroup_size, 16u);
@@ -4536,7 +4541,11 @@ static void ggml_vk_load_shaders(vk_device& device) {
         ggml_vk_create_pipeline(device, it.second, "fa_mask_opt", fa_mask_opt_len, fa_mask_opt_data, "main", 2, sizeof(vk_op_flash_attn_mask_opt_push_constants), {1, 1, 1}, {128, 128 / device->subgroup_size, BrBc.first, BrBc.second}, 1, true, true, device->subgroup_size);
     }
 
-    if (device->subgroup_clustered && device->subgroup_require_full_support) {
+    // Adreno (Qualcomm) Vulkan crashes pipeline-create on the subgroup-clustered
+    // quantize_q8_1_x4 shader (same class as the mul_mat_vec fix above); force
+    // the non-subgroup variant on Qualcomm.
+    if (device->subgroup_clustered && device->subgroup_require_full_support &&
+        device->vendor_id != VK_VENDOR_ID_QUALCOMM) {
         ggml_vk_create_pipeline(device, device->pipeline_quantize_q8_1_x4, "quantize_q8_1_x4", quantize_q8_1_x4_subgroup_len, quantize_q8_1_x4_subgroup_data, "main", 2, sizeof(vk_quantize_q8_1_push_constants), {32 * device->subgroup_size / 8, 1, 1}, { device->subgroup_size }, 1, true, true);
     } else {
         ggml_vk_create_pipeline(device, device->pipeline_quantize_q8_1_x4, "quantize_q8_1_x4", quantize_q8_1_x4_len, quantize_q8_1_x4_data, "main", 2, sizeof(vk_quantize_q8_1_push_constants), {32 * device->subgroup_size / 8, 1, 1}, { device->subgroup_size }, 1);
@@ -5317,6 +5326,16 @@ static vk_device ggml_vk_get_device(size_t idx) {
         }
 
         device->integer_dot_product = device->integer_dot_product && shader_integer_dot_product_props.integerDotProduct4x8BitPackedSignedAccelerated;
+
+        // Adreno (Qualcomm) advertises integer-dot acceleration, but its SPIR-V
+        // compiler rejects the int8-pack quantize_q8_1 shader used by the integer
+        // MMQ path (createComputePipeline -> ErrorUnknown -> NULL pipeline ->
+        // driver crash in vkCmdBindPipeline). Disable the integer-dot path on
+        // Qualcomm so quantized matmuls take the dequantize -> f16 matmul route,
+        // which the Adreno driver compiles and runs correctly.
+        if (device->properties.vendorID == VK_VENDOR_ID_QUALCOMM) {
+            device->integer_dot_product = false;
+        }
 
         device->min_imported_host_pointer_alignment = external_memory_host_props.minImportedHostPointerAlignment;
 
@@ -7487,6 +7506,12 @@ static vk_pipeline ggml_vk_guess_matmul_pipeline(ggml_backend_vk_context * ctx, 
     if ((ctx->device->mul_mat_m[src0_type] && (m <= 64 || n <= 64)) || !ctx->device->mul_mat_l[src0_type]) {
         return aligned ? mmp->a_m : mmp->m;
     }
+    // Adreno (Qualcomm) Vulkan crashes on the matmul `_l` (large, BLOCK_SIZE=128)
+    // tile; fall back to the `_m` tile (BLOCK_SIZE=64, known-good). Cost: ~4x more
+    // dispatches on Adreno; no correctness change.
+    if (ctx->device->vendor_id == VK_VENDOR_ID_QUALCOMM && ctx->device->mul_mat_m[src0_type]) {
+        return aligned ? mmp->a_m : mmp->m;
+    }
     return aligned ? mmp->a_l : mmp->l;
 
     GGML_UNUSED(src1_type);
@@ -7567,6 +7592,10 @@ static vk_pipeline ggml_vk_guess_matmul_id_pipeline(ggml_backend_vk_context * ct
         return aligned ? mmp->a_s : mmp->s;
     }
     if ((ctx->device->mul_mat_id_m[src0_type] && (m <= 64 || n <= 64)) || !ctx->device->mul_mat_id_l[src0_type]) {
+        return aligned ? mmp->a_m : mmp->m;
+    }
+    // Adreno (Qualcomm) Vulkan crashes on the matmul `_l` tile; fall back to `_m`.
+    if (ctx->device->vendor_id == VK_VENDOR_ID_QUALCOMM && ctx->device->mul_mat_id_m[src0_type]) {
         return aligned ? mmp->a_m : mmp->m;
     }
     return aligned ? mmp->a_l : mmp->l;
@@ -7859,7 +7888,13 @@ static void ggml_vk_mul_mat_q_f16(ggml_backend_vk_context * ctx, vk_context& sub
         quantize_y = false;
     }
 
-    const bool qx_needs_dequant = mmp == nullptr || x_non_contig;
+    // Adreno (Qualcomm) Vulkan: the SPIR-V compiler rejects matmul shaders that
+    // dequantize a quantized src0 inline (e.g. matmul_q4_0_f32 -> createComputePipeline
+    // ErrorUnknown -> NULL pipeline -> driver crash in vkCmdBindPipeline). Force a
+    // separate dequantize pass (quantized src0 -> f16) so the matmul uses the f16
+    // kernel, which the Adreno driver compiles and runs correctly.
+    const bool qx_force_dequant = ctx->device->vendor_id == VK_VENDOR_ID_QUALCOMM && ggml_is_quantized(src0->type);
+    const bool qx_needs_dequant = mmp == nullptr || x_non_contig || qx_force_dequant;
     const bool qy_needs_dequant = !quantize_y && ((src1->type != f16_type && !y_f32_kernel) || y_non_contig);
 
     if (qx_needs_dequant) {
@@ -9884,11 +9919,15 @@ static vk_pipeline ggml_vk_op_get_pipeline(ggml_backend_vk_context * ctx, const 
             return ctx->device->pipeline_topk_moe[idx][use_push];
         }
 
+        // Adreno (Qualcomm) Vulkan hangs in vk::Queue::waitIdle on the wg512 softmax
+        // variant (BLOCK_SIZE=512); fall back to the smaller-wg variant.
         if (src0->type == GGML_TYPE_F32 && (src1 == nullptr || src1->type == GGML_TYPE_F32) && dst->type == GGML_TYPE_F32) {
-            return src0->ne[0] > 1024 ? ctx->device->pipeline_soft_max_f32_wg512 : ctx->device->pipeline_soft_max_f32;
+            const bool use_wg512 = src0->ne[0] > 1024 && ctx->device->vendor_id != VK_VENDOR_ID_QUALCOMM;
+            return use_wg512 ? ctx->device->pipeline_soft_max_f32_wg512 : ctx->device->pipeline_soft_max_f32;
         }
         if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F16 && dst->type == GGML_TYPE_F32) {
-            return src0->ne[0] > 1024 ? ctx->device->pipeline_soft_max_f32_f16_wg512 : ctx->device->pipeline_soft_max_f32_f16;
+            const bool use_wg512 = src0->ne[0] > 1024 && ctx->device->vendor_id != VK_VENDOR_ID_QUALCOMM;
+            return use_wg512 ? ctx->device->pipeline_soft_max_f32_f16_wg512 : ctx->device->pipeline_soft_max_f32_f16;
         }
         return nullptr;
     case GGML_OP_SOFT_MAX_BACK:
@@ -14041,7 +14080,16 @@ static size_t ggml_backend_vk_buffer_type_get_alignment(ggml_backend_buffer_type
 
 static size_t ggml_backend_vk_buffer_type_get_max_size(ggml_backend_buffer_type_t buft) {
     ggml_backend_vk_buffer_type_context * ctx = (ggml_backend_vk_buffer_type_context *) buft->context;
-    return ctx->device->suballocation_block_size;
+    size_t alloc_block = ctx->device->suballocation_block_size;
+    // Adreno (Qualcomm) can't bind a single descriptor larger than
+    // maxStorageBufferRange (128 MiB, the Vulkan-spec minimum, which Adreno 740
+    // exposes); cap there so callers can fall back to CPU. Other vendors keep
+    // the full suballocation block size.
+    if (ctx->device->vendor_id != VK_VENDOR_ID_QUALCOMM) {
+        return alloc_block;
+    }
+    size_t desc_range = ctx->device->properties.limits.maxStorageBufferRange;
+    return std::min(alloc_block, desc_range);
 }
 
 static size_t ggml_backend_vk_buffer_type_get_alloc_size(ggml_backend_buffer_type_t buft, const ggml_tensor * tensor) {
@@ -15849,6 +15897,11 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
             }
         case GGML_OP_FLASH_ATTN_EXT:
             {
+                // Adreno (Qualcomm) Vulkan fails to compile every flash_attn SPIR-V
+                // variant (createComputePipeline returns ErrorUnknown); route FA to CPU.
+                if (device->vendor_id == VK_VENDOR_ID_QUALCOMM) {
+                    return false;
+                }
                 bool coopmat2 = device->coopmat2;
                 uint32_t HSK = op->src[1]->ne[0];
                 uint32_t HSV = op->src[2]->ne[0];
