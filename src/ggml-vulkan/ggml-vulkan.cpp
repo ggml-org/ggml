@@ -6906,6 +6906,21 @@ static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context& 
     GGML_ASSERT(wg0 <= ctx->device->properties.limits.maxComputeWorkGroupCount[0] &&
                 wg1 <= ctx->device->properties.limits.maxComputeWorkGroupCount[1] &&
                 wg2 <= ctx->device->properties.limits.maxComputeWorkGroupCount[2]);
+    // The per-graph descriptor-set pre-count (accumulated via
+    // ggml_pipeline_request_descriptor_sets as nodes are built) can under-count the
+    // actual dispatches in rare paths -- e.g. the f16 small-tile matmul that
+    // ggml_vk_guess_matmul_pipeline selects on GPUs with a small subgroup size such
+    // as Mali, which dispatches one set more than was requested. Grow the pool on
+    // demand so a dispatch never runs out of descriptor sets. Raising the requirement
+    // to descriptor_set_idx + 1 forces ggml_pipeline_allocate_descriptor_sets to grow
+    // the pool past the current consumption index: a plain request(+1) would not, since
+    // allocate no-ops while descriptor_sets.size() >= pipeline_descriptor_set_requirements
+    // and the pool is normally over-allocated (it grows in 1.5x jumps). On the common
+    // path (idx already < size) this whole block is a no-op.
+    if (ctx->descriptor_set_idx >= ctx->descriptor_sets.size()) {
+        ctx->pipeline_descriptor_set_requirements = ctx->descriptor_set_idx + 1;
+        ggml_pipeline_allocate_descriptor_sets(ctx);
+    }
     GGML_ASSERT(ctx->descriptor_set_idx < ctx->descriptor_sets.size());
     GGML_ASSERT(descriptor_buffer_infos.size() <= MAX_PARAMETER_COUNT);
     GGML_ASSERT(pipeline->parameter_count == descriptor_buffer_infos.size());
