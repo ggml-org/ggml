@@ -733,7 +733,14 @@ void ggml_backend_load_all_from_path(const char * dir_path) {
     ggml_backend_load_best("metal", silent, dir_path);
     ggml_backend_load_best("rpc", silent, dir_path);
     ggml_backend_load_best("sycl", silent, dir_path);
-    ggml_backend_load_best("vulkan", silent, dir_path);
+    // Skip Vulkan dlopen when GGML_DISABLE_VULKAN is set, so GPU work can route
+    // to OpenCL on Adreno (Vulkan crashes in vkCmdBindPipeline there). Mirrors
+    // the static-link gate above.
+    if (getenv("GGML_DISABLE_VULKAN") == nullptr) {
+        ggml_backend_load_best("vulkan", silent, dir_path);
+    } else {
+        GGML_LOG_INFO("ggml_backend_load_all_from_path: skipping vulkan (GGML_DISABLE_VULKAN set)\n");
+    }
     ggml_backend_load_best("virtgpu", silent, dir_path);
 
     // OpenCL is only useful (and stable) for ggml on Adreno GPUs; on every
