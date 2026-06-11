@@ -771,6 +771,12 @@ void ggml_backend_load_all_from_path(const char * dir_path) {
         }
     }
 #endif // __ANDROID__
+    // Opt-in escape hatch: force-load the OpenCL backend even when the Android
+    // Adreno heuristic above would skip it (e.g. to evaluate OpenCL on a
+    // non-Adreno GPU such as Samsung Xclipse). Default behaviour is unchanged.
+    if (std::getenv("GGML_OPENCL_FORCE_LOAD") != nullptr) {
+        load_opencl = true;
+    }
     if (load_opencl) {
         ggml_backend_load_best("opencl", silent, dir_path);
     }

@@ -9,10 +9,10 @@
 #define TM 4
 #define TN 8
 
-kernel void kernel_mul_mm_f32_f32_l4_lm(
-    global float4 * src0,
+kernel void kernel_mul_mm_f16_f16_l4_lm(
+    global half4 * src0,
     ulong offset0,
-    global float4 * src1,
+    global half4 * src1,
     ulong offset1,
     global float * dst,
     ulong offsetd,
@@ -34,11 +34,11 @@ kernel void kernel_mul_mm_f32_f32_l4_lm(
     int r2,
     int r3
 ) {
-    src0 = (global float4*)((global char*)src0 + offset0);
-    src1 = (global float4*)((global char*)src1 + offset1);
+    src0 = (global half4*)((global char*)src0 + offset0);
+    src1 = (global half4*)((global char*)src1 + offset1);
     dst = (global float*)((global char*)dst + offsetd);
 
-    local float buf_a[BM * BK];
+    local half  buf_a[BM * BK];
     local float buf_b[BN * BK];
 
     const int batch_idx = get_global_id(2);
@@ -70,7 +70,7 @@ kernel void kernel_mul_mm_f32_f32_l4_lm(
     int pos_b = (batch_idx   * batch_stride_b + ic * BN * stride_b) / LOAD_VEC_B;
 
     float sums[TM * TN];
-    float cache_a[TM];
+    half  cache_a[TM];
     float cache_b[TN];
 
     for (int i = 0; i < TM * TN; i++) {
@@ -86,10 +86,10 @@ kernel void kernel_mul_mm_f32_f32_l4_lm(
                 buf_a[(loadr_a * LOAD_VEC_A + 2) * BM + loadc_a + l] = src0[idx].s2;
                 buf_a[(loadr_a * LOAD_VEC_A + 3) * BM + loadc_a + l] = src0[idx].s3;
             } else {
-                buf_a[(loadr_a * LOAD_VEC_A + 0) * BM + loadc_a + l] = 0.0f;
-                buf_a[(loadr_a * LOAD_VEC_A + 1) * BM + loadc_a + l] = 0.0f;
-                buf_a[(loadr_a * LOAD_VEC_A + 2) * BM + loadc_a + l] = 0.0f;
-                buf_a[(loadr_a * LOAD_VEC_A + 3) * BM + loadc_a + l] = 0.0f;
+                buf_a[(loadr_a * LOAD_VEC_A + 0) * BM + loadc_a + l] = 0.0h;
+                buf_a[(loadr_a * LOAD_VEC_A + 1) * BM + loadc_a + l] = 0.0h;
+                buf_a[(loadr_a * LOAD_VEC_A + 2) * BM + loadc_a + l] = 0.0h;
+                buf_a[(loadr_a * LOAD_VEC_A + 3) * BM + loadc_a + l] = 0.0h;
             }
         }
 
@@ -117,7 +117,6 @@ kernel void kernel_mul_mm_f32_f32_l4_lm(
             for (int j = 0; j < TM; j++) {
                 cache_a[j] = buf_a[(i) * BM + th_r * TM + j];
             }
-
             for (int j = 0; j < TN; j++) {
                 cache_b[j] = buf_b[(i) * BN + th_c * TN + j];
             }
@@ -125,7 +124,7 @@ kernel void kernel_mul_mm_f32_f32_l4_lm(
             for (int cc = 0; cc < TN; cc++) {
                 for (int cr = 0; cr < TM; cr++) {
                     const int sums_idx = cc*TM + cr;
-                    sums[sums_idx] = mad(cache_a[cr], cache_b[cc], sums[sums_idx]);
+                    sums[sums_idx] = mad(convert_float(cache_a[cr]), cache_b[cc], sums[sums_idx]);
                 }
             }
         }

@@ -419,6 +419,11 @@ struct ggml_backend_opencl_context {
     GPU_FAMILY gpu_family;
     ADRENO_GPU_GEN adreno_gen;
 
+    // True for a non-Adreno 64-wide cl_khr_subgroups device (e.g. Samsung
+    // Xclipse / AMD RDNA2) that reuses the Adreno (64-wide) kernel path. Drives
+    // the generic-subgroup compile defines in load_cl_kernels().
+    bool generic_subgroup_64 = false;
+
     cl_int alignment;
     size_t max_alloc_size;
     size_t max_workgroup_size;
@@ -507,6 +512,7 @@ struct ggml_backend_opencl_context {
     cl_program program_mul_mv_id_mxfp4_f32_flat;
     cl_program program_mul_mm_f32_f32_l4_lm;
     cl_program program_mul_mm_f16_f32_l4_lm;
+    cl_program program_mul_mm_f16_f16_l4_lm;
     cl_program program_mul_mm_q8_0_f32_l4_lm;
 
     cl_kernel kernel_add, kernel_add_row, kernel_add_f16, kernel_add_row_f16;
@@ -629,6 +635,7 @@ struct ggml_backend_opencl_context {
     cl_kernel kernel_mul_mv_id_mxfp4_f32_flat;
     cl_kernel kernel_mul_mm_f32_f32_l4_lm;
     cl_kernel kernel_mul_mm_f16_f32_l4_lm;
+    cl_kernel kernel_mul_mm_f16_f16_l4_lm;
     cl_kernel kernel_mul_mm_q4_0_f32_l4_lm;
     cl_kernel kernel_mul_mm_q4_1_f32_l4_lm;
     cl_kernel kernel_mul_mm_q8_0_f32_l4_lm;
@@ -1051,6 +1058,20 @@ static void load_cl_kernels(ggml_backend_opencl_context *backend_ctx, ggml_cl_ve
 
     if (backend_ctx->adreno_use_large_buffer) {
         compile_opts += " -qcom-enable-large-buffer ";
+    }
+
+    if (backend_ctx->generic_subgroup_64) {
+        // 64-wide cl_khr_subgroups device (e.g. Samsung Xclipse) reusing the
+        // Adreno kernel path. The OpenCL compiler does not predefine
+        // cl_qcom_reqd_sub_group_size here, so the kernels' ADRENO_GPU /
+        // N_SIMDWIDTH macros would be undefined and clBuildProgram would abort.
+        // Define ADRENO_GPU (its N_SIMDWIDTH is 64, matching this device) and
+        // neutralise the qcom required-subgroup-size attribute macros so the
+        // kernels compile without the qcom attribute.
+        compile_opts +=
+            " -DADRENO_GPU=1"
+            " -DREQD_SUBGROUP_SIZE_16= -DREQD_SUBGROUP_SIZE_32="
+            " -DREQD_SUBGROUP_SIZE_64= -DREQD_SUBGROUP_SIZE_128=";
     }
 
     GGML_LOG_INFO("ggml_opencl: loading OpenCL kernels");
@@ -1804,6 +1825,22 @@ static void load_cl_kernels(ggml_backend_opencl_context *backend_ctx, ggml_cl_ve
         GGML_LOG_CONT(".");
     }
 
+    // mul_mm_f16_f16_l4_lm
+    {
+#ifdef GGML_OPENCL_EMBED_KERNELS
+        const std::string kernel_src {
+            #include "mul_mm_f16_f16_l4_lm.cl.h"
+        };
+#else
+        const std::string kernel_src = read_file("mul_mm_f16_f16_l4_lm.cl");
+#endif
+        backend_ctx->program_mul_mm_f16_f16_l4_lm =
+            build_program_from_source(backend_ctx->context, backend_ctx->device, kernel_src.c_str(), compile_opts);
+
+        CL_CHECK((backend_ctx->kernel_mul_mm_f16_f16_l4_lm = clCreateKernel(backend_ctx->program_mul_mm_f16_f16_l4_lm, "kernel_mul_mm_f16_f16_l4_lm", &err), err));
+        GGML_LOG_CONT(".");
+    }
+
     // mul_mm_q4_0_f32_l4_lm
     {
 #ifdef GGML_OPENCL_EMBED_KERNELS
@@ -2255,7 +2292,13 @@ static void load_cl_kernels(ggml_backend_opencl_context *backend_ctx, ggml_cl_ve
                 const std::string kernel_src_f32_f16 = read_file("flash_attn_f32_f16.cl");
         #endif
 
-        if (!kernel_src_f16.empty() && !kernel_src_f32.empty() && !kernel_src_f32_f16.empty()) {
+        // Skip building the flash-attention kernels on a generic_subgroup_64
+        // device (e.g. Samsung Xclipse): the Samsung OpenCL compiler SIGSEGVs
+        // while compiling them, and FLASH_ATTN_EXT is routed to CPU on this
+        // gpu_family (the Adreno guard in ggml_opencl_supports_op) so the
+        // kernels are never dispatched here anyway.
+        if (!backend_ctx->generic_subgroup_64 &&
+            !kernel_src_f16.empty() && !kernel_src_f32.empty() && !kernel_src_f32_f16.empty()) {
             const struct { int dk; int dv; int bm; int bn; } fa_dims[] = {
                 { 40,  40, 32, 32}, { 64,  64, 64, 64}, { 80,  80, 64, 32}, { 96,  96, 64, 32},
                 {112, 112, 32, 32}, {128, 128, 32, 32}, {192, 128, 16, 16},
@@ -3589,22 +3632,54 @@ static ggml_backend_opencl_context * ggml_cl2_init(ggml_backend_dev_t dev) {
         }
         const bool has_intel_sg = ext.find("cl_intel_required_subgroup_size") != std::string::npos;
         const bool has_qcom_sg  = ext.find("cl_qcom_reqd_sub_group_size")     != std::string::npos;
-        if (!has_intel_sg && !has_qcom_sg) {
+        const bool has_khr_sg   = ext.find("cl_khr_subgroups")                != std::string::npos;
+        const bool has_amd_attr = ext.find("cl_amd_device_attribute_query")   != std::string::npos;
+
+#ifndef CL_DEVICE_WAVEFRONT_WIDTH_AMD
+#define CL_DEVICE_WAVEFRONT_WIDTH_AMD 0x4043
+#endif
+        cl_uint amd_wave = 0;
+        if (has_amd_attr) {
+            clGetDeviceInfo(dev_ctx->device, CL_DEVICE_WAVEFRONT_WIDTH_AMD,
+                            sizeof(amd_wave), &amd_wave, NULL);
+        }
+
+        if (has_intel_sg || has_qcom_sg) {
+            // Device advertises a vendor required-subgroup-size extension but is
+            // not named Adreno/Intel; run with the generic kernels as before.
+            GGML_LOG_WARN("ggml_opencl: GPU '%s' is not Adreno/Qualcomm or Intel; "
+                          "running with generic OpenCL kernels (qvac-parakeet patch + "
+                          "GGML_OPENCL_ALLOW_UNKNOWN_GPU=1). "
+                          "Adreno-specific kernels and large-buffer paths stay off.\n",
+                          dev_ctx->device_name.c_str());
+            backend_ctx->gpu_family = GPU_FAMILY::UNKNOWN;
+        } else if (has_khr_sg && amd_wave == 64) {
+            // No Intel/QCOM required-subgroup-size extension, but this is a
+            // 64-wide cl_khr_subgroups device (e.g. Samsung Xclipse / AMD RDNA2;
+            // verified OpenCL subgroup size is a stable 64). Reuse the Adreno
+            // 64-wide kernel path: its gpu_family==ADRENO work-group sizes and
+            // sgs are all 64, and load_cl_kernels() injects ADRENO_GPU plus
+            // neutralised REQD_SUBGROUP_SIZE_* so the kernels compile without the
+            // qcom attribute.
+            GGML_LOG_WARN("ggml_opencl: GPU '%s' lacks intel/qcom reqd-subgroup-size but is a "
+                          "64-wide cl_khr_subgroups device; reusing the Adreno 64-wide kernel path "
+                          "(GGML_OPENCL_ALLOW_UNKNOWN_GPU=1).\n",
+                          dev_ctx->device_name.c_str());
+            backend_ctx->gpu_family          = GPU_FAMILY::ADRENO;
+            backend_ctx->adreno_wave_size    = 64;
+            backend_ctx->generic_subgroup_64 = true;
+        } else {
+            // No required-subgroup-size extension and not a known 64-wide
+            // subgroup device: the matmul-vec kernels cannot define
+            // N_DST/N_SIMDGROUP/N_SIMDWIDTH and clBuildProgram would abort.
             GGML_LOG_ERROR("ggml_opencl: GPU '%s' has neither cl_intel_required_subgroup_size "
-                "nor cl_qcom_reqd_sub_group_size; matmul-vec kernels cannot define "
-                "N_DST/N_SIMDGROUP/N_SIMDWIDTH and clBuildProgram would abort. "
-                "Falling back to host (qvac-parakeet patch).\n",
+                "nor cl_qcom_reqd_sub_group_size and is not a 64-wide cl_khr_subgroups device; "
+                "matmul-vec kernels cannot define N_DST/N_SIMDGROUP/N_SIMDWIDTH and clBuildProgram "
+                "would abort. Falling back to host (qvac-parakeet patch).\n",
                 dev_ctx->device_name.c_str());
             backend_ctx->gpu_family = GPU_FAMILY::UNKNOWN;
             return nullptr;
         }
-
-        GGML_LOG_WARN("ggml_opencl: GPU '%s' is not Adreno/Qualcomm or Intel; "
-                      "running with generic OpenCL kernels (qvac-parakeet patch + "
-                      "GGML_OPENCL_ALLOW_UNKNOWN_GPU=1). "
-                      "Adreno-specific kernels and large-buffer paths stay off.\n",
-                      dev_ctx->device_name.c_str());
-        backend_ctx->gpu_family = GPU_FAMILY::UNKNOWN;
     }
 
 #ifdef GGML_OPENCL_USE_ADRENO_KERNELS
@@ -4602,6 +4677,23 @@ static bool ggml_opencl_supports_op(ggml_backend_dev_t dev, const struct ggml_te
         case GGML_OP_GROUP_NORM:
             return ggml_is_contiguous(op->src[0]);
         case GGML_OP_MUL_MAT:
+            // generic_subgroup_64 (e.g. Samsung Xclipse): the subgroup-reduction
+            // mul_mv kernels mis-compute on this driver. Only the local-memory
+            // GEMMs are correct, and they require ne00 % 4 == 0 with either an F32
+            // src1 (F32/F16 src0) or an F16 src1 (F16 src0). Force every other
+            // matmul to the CPU so mul_mv is never dispatched on this family.
+            if (backend_ctx->generic_subgroup_64) {
+                if (op->src[0]->ne[0] % 4 != 0) {
+                    return false;
+                }
+                if (op->src[1]->type == GGML_TYPE_F32) {
+                    return op->src[0]->type == GGML_TYPE_F32 || op->src[0]->type == GGML_TYPE_F16;
+                }
+                if (op->src[1]->type == GGML_TYPE_F16) {
+                    return op->src[0]->type == GGML_TYPE_F16;
+                }
+                return false;
+            }
             if (op->src[0]->type == GGML_TYPE_F16) {
                 return true;
             } else if (op->src[0]->type == GGML_TYPE_F32) {
@@ -4677,6 +4769,15 @@ static bool ggml_opencl_supports_op(ggml_backend_dev_t dev, const struct ggml_te
             return op->src[0]->type == GGML_TYPE_F32;
         case GGML_OP_FLASH_ATTN_EXT:
             {
+                // Adreno: the OpenCL flash-attention kernels miscompute on real whisper-encoder inputs
+                // (they pass test-backend-ops but the model decodes to empty output), mirroring the
+                // Adreno policy in ggml-vulkan. generic_subgroup_64 devices (e.g. Samsung Xclipse)
+                // additionally do not build the FA kernels at all (the Samsung OpenCL compiler crashes
+                // compiling them). Either way, route FLASH_ATTN_EXT to CPU and keep the rest of the
+                // graph on the GPU. TODO: fix the kernels so FA can run on these GPUs.
+                if (backend_ctx->gpu_family == ADRENO || backend_ctx->generic_subgroup_64) {
+                    return false;
+                }
                 const ggml_tensor * q = op->src[0];
                 const ggml_tensor * k = op->src[1];
                 const ggml_tensor * v = op->src[2];
@@ -12124,6 +12225,89 @@ static void ggml_cl_mul_mat(ggml_backend_t backend, const ggml_tensor * src0, co
     }
     } // if (ne01 && ne1)
 #endif // GGML_OPENCL_USE_ADRENO_KERNELS
+
+    // generic_subgroup_64 (e.g. Samsung Xclipse): the subgroup-reduction mul_mv
+    // kernels mis-compute on this driver, so route EVERY matmul through a correct
+    // local-memory GEMM (barrier reduction). The GEMMs mask the K-tail, so any
+    // ne00 % 4 == 0 works (not just % 16). ggml_opencl_supports_op forces matmuls
+    // that cannot use one of these GEMMs (ne00 % 4 != 0, quantized src0, or a
+    // non-F32/F16 src1) to the CPU on this family, so mul_mv is never reached here.
+    if (backend_ctx->generic_subgroup_64 && ne00 % 4 == 0) {
+        cl_kernel gemm_kernel = NULL;
+        if (src0t == GGML_TYPE_F32 && src1t == GGML_TYPE_F32) {
+            gemm_kernel = backend_ctx->kernel_mul_mm_f32_f32_l4_lm;
+        } else if (src0t == GGML_TYPE_F16 && src1t == GGML_TYPE_F32) {
+            gemm_kernel = backend_ctx->kernel_mul_mm_f16_f32_l4_lm;
+        } else if (src0t == GGML_TYPE_F16 && src1t == GGML_TYPE_F16) {
+            gemm_kernel = backend_ctx->kernel_mul_mm_f16_f16_l4_lm;
+        }
+        if (gemm_kernel != NULL) {
+            kernel = gemm_kernel;
+            nth0 = 128; // (BM*BN)/(TM*TN)
+
+            int batch_stride_a = ne00*ne01;
+            int batch_stride_b = ne10*ne11;
+            int batch_stride_d = ne0*ne1;
+
+            cl_mem mem_src0 = extra0->data_device;
+            cl_mem mem_src1 = extra1->data_device;
+
+            cl_ulong nb00_cont = nb00;
+            cl_ulong nb01_cont = nb01;
+            cl_ulong nb02_cont = nb02;
+            cl_ulong nb03_cont = nb03;
+
+            cl_ulong nb10_cont = nb10;
+            cl_ulong nb11_cont = nb11;
+            cl_ulong nb12_cont = nb12;
+            cl_ulong nb13_cont = nb13;
+
+            cl_ulong offset0_cont = offset0;
+            cl_ulong offset1_cont = offset1;
+
+            if (!ggml_is_contiguous(src0)) {
+                backend_ctx->prealloc_src0.allocate(backend_ctx->context, ggml_nbytes(src0));
+                ggml_cl_copy_to_contiguous(backend, src0, backend_ctx->prealloc_src0.buffer,
+                    nb00_cont, nb01_cont, nb02_cont, nb03_cont);
+                mem_src0 = backend_ctx->prealloc_src0.buffer;
+                offset0_cont = 0;
+            }
+
+            if (!ggml_is_contiguous(src1)) {
+                backend_ctx->prealloc_src1.allocate(backend_ctx->context, ggml_nbytes(src1));
+                ggml_cl_copy_to_contiguous(backend, src1, backend_ctx->prealloc_src1.buffer,
+                    nb10_cont, nb11_cont, nb12_cont, nb13_cont);
+                mem_src1 = backend_ctx->prealloc_src1.buffer;
+                offset1_cont = 0;
+            }
+
+            CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &mem_src0));
+            CL_CHECK(clSetKernelArg(kernel,  1, sizeof(cl_ulong), &offset0_cont));
+            CL_CHECK(clSetKernelArg(kernel,  2, sizeof(cl_mem),   &mem_src1));
+            CL_CHECK(clSetKernelArg(kernel,  3, sizeof(cl_ulong), &offset1_cont));
+            CL_CHECK(clSetKernelArg(kernel,  4, sizeof(cl_mem),   &extrad->data_device));
+            CL_CHECK(clSetKernelArg(kernel,  5, sizeof(cl_ulong), &offsetd));
+            CL_CHECK(clSetKernelArg(kernel,  6, sizeof(int),      &ne00));
+            CL_CHECK(clSetKernelArg(kernel,  7, sizeof(int),      &ne01));
+            CL_CHECK(clSetKernelArg(kernel,  8, sizeof(int),      &ne02));
+            CL_CHECK(clSetKernelArg(kernel,  9, sizeof(int),      &ne11));
+            CL_CHECK(clSetKernelArg(kernel, 10, sizeof(int),      &ne12));
+            CL_CHECK(clSetKernelArg(kernel, 11, sizeof(int),      &ne10)); // stride_a
+            CL_CHECK(clSetKernelArg(kernel, 12, sizeof(int),      &ne10)); // stride_b
+            CL_CHECK(clSetKernelArg(kernel, 13, sizeof(int),      &ne01)); // stride_d
+            CL_CHECK(clSetKernelArg(kernel, 14, sizeof(int),      &batch_stride_a));
+            CL_CHECK(clSetKernelArg(kernel, 15, sizeof(int),      &batch_stride_b));
+            CL_CHECK(clSetKernelArg(kernel, 16, sizeof(int),      &batch_stride_d));
+            CL_CHECK(clSetKernelArg(kernel, 17, sizeof(int),      &r2));
+            CL_CHECK(clSetKernelArg(kernel, 18, sizeof(int),      &r3));
+
+            size_t global_work_size[] = {(size_t)(CEIL_DIV(ne01, 64)*nth0), (size_t)(CEIL_DIV(ne11, 64)), (size_t)ne12*ne13};
+            size_t local_work_size[] = {(size_t)nth0, 1, 1};
+
+            backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
+            return;
+        }
+    }
 
     // GEMM using local memory
     // Current BK = 16, so ne00 % 16 == 0
