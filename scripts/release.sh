@@ -203,9 +203,9 @@ prepare_release() {
         echo "  [dry-run] Would update GGML_VERSION_MINOR to $NEW_MINOR"
         echo "  [dry-run] Would update GGML_VERSION_PATCH to $NEW_PATCH"
     else
-        sed -i'' -e "s/set(GGML_VERSION_MAJOR [0-9]*)/set(GGML_VERSION_MAJOR $NEW_MAJOR)/" CMakeLists.txt
-        sed -i'' -e "s/set(GGML_VERSION_MINOR [0-9]*)/set(GGML_VERSION_MINOR $NEW_MINOR)/" CMakeLists.txt
-        sed -i'' -e "s/set(GGML_VERSION_PATCH [0-9]*)/set(GGML_VERSION_PATCH $NEW_PATCH)/" CMakeLists.txt
+        sed -i '' -e "s/set(GGML_VERSION_MAJOR [0-9]*)/set(GGML_VERSION_MAJOR $NEW_MAJOR)/" CMakeLists.txt
+        sed -i '' -e "s/set(GGML_VERSION_MINOR [0-9]*)/set(GGML_VERSION_MINOR $NEW_MINOR)/" CMakeLists.txt
+        sed -i '' -e "s/set(GGML_VERSION_PATCH [0-9]*)/set(GGML_VERSION_PATCH $NEW_PATCH)/" CMakeLists.txt
     fi
     echo ""
 
