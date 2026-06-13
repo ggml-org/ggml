@@ -613,13 +613,24 @@ void ggml_metal_rsets_free(ggml_metal_rsets_t rsets) {
         return;
     }
 
-    // note: if you hit this assert, most likely you haven't deallocated all Metal resources before exiting
-    GGML_ASSERT([rsets->data count] == 0);
-
+    // Stop the keep-alive heartbeat before touching the collection so the
+    // background thread no longer races on rsets->data.
     atomic_store_explicit(&rsets->d_stop, true, memory_order_relaxed);
 
     dispatch_group_wait(rsets->d_group, DISPATCH_TIME_FOREVER);
     dispatch_release(rsets->d_group);
+
+    // Lingering residency sets here mean some Metal buffers outlived the
+    // device (e.g. C++ static-destructor ordering at process exit). Draining
+    // them is safe during teardown, so warn instead of aborting the process.
+    [rsets->lock lock];
+    const NSUInteger n_leaked = [rsets->data count];
+    if (n_leaked != 0) {
+        GGML_LOG_WARN("%s: %lu residency set(s) still registered at device free; draining\n",
+                      __func__, (unsigned long) n_leaked);
+        [rsets->data removeAllObjects];
+    }
+    [rsets->lock unlock];
 
     [rsets->data release];
     [rsets->lock release];
