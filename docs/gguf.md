@@ -44,9 +44,9 @@ The components are:
     - This can be derived from gguf metadata `general.version`
 1. **Encoding**: Indicates the weights encoding scheme that was applied to the model. Content, type mixture and arrangement however are determined by user code and can vary depending on project needs.
 1. **Type**: Indicates the kind of gguf file and the intended purpose for it
-  - If missing, then file is by default a typical gguf tensor model file
-  - `LoRA` : GGUF file is a LoRA adapter
-  - `vocab` : GGUF file with only vocab data and metadata
+    - If missing, then file is by default a typical gguf tensor model file
+    - `LoRA` : GGUF file is a LoRA adapter
+    - `vocab` : GGUF file with only vocab data and metadata
 1. **Shard**: (Optional) Indicates and denotes that the model has been split into multiple shards, formatted as `<ShardNum>-of-<ShardTotal>`.
     - *ShardNum* : Shard position in this model. Must be 5 digits padded by zeros.
       - Shard number always starts from `00001` onwards (e.g. First shard always starts at `00001-of-XXXXX` rather than `00000-of-XXXXX`).
