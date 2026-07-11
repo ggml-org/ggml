@@ -18,6 +18,13 @@ struct block_q4_0
     uint8_t qs[QK4_0 / 2];
 };
 
+enum {
+    Q4_0_LAYOUT_AOS = 0,
+    Q4_0_LAYOUT_SOA = 1,
+    Q4_0_LAYOUT_ADRENO_TRANSPOSED = 2,
+    Q4_0_LAYOUT_ADRENO_MOE_TRANS4 = 3,
+};
+
 
 //------------------------------------------------------------------------------
 // dequantize_q4_0_f32, dequantize_q4_0_f16
@@ -164,13 +171,16 @@ kernel void kernel_get_rows_q4_0(
         ulong nb12,
         ulong nb1,
         ulong nb2,
-        ulong nb3
+        ulong nb3,
+        global void * src0_d,
+        int q4_0_layout,
+        int ne01
 ) {
     src0 = (global void*)((global char*)src0 + offset0);
     src1 = (global int*)((global char*)src1 + offset1);
     dst = (global float*)((global char*)dst + offsetd);
 
-    const int NL = 2;
+    const int block_size = sizeof(struct block_q4_0);
 
     int i10 = get_group_id(0);
     int i11 = get_group_id(1);
@@ -180,14 +190,67 @@ kernel void kernel_get_rows_q4_0(
 
     int i02 = i11;
     int i03 = i12;
+    const int nb = ne00 / QK4_0;
+    const ulong row_byte_offset = (ulong)r*nb01 + (ulong)i02*nb02 + (ulong)i03*nb03;
+    const ulong row_block_offset = row_byte_offset / block_size;
 
     for (int ind = get_local_id(0); ind < ne00/16; ind += get_local_size(0)) {
-        float16 temp;
-        if (ind >= ne00) {
-            return;
+        const int ib = ind / 2;
+        const int ih = ind & 1;
+        half d;
+        global float * dst_row = (global float *) ((global char *) dst + (ulong)i12*nb3 + (ulong)i11*nb2 + (ulong)i10*nb1);
+        const int dst_base = ind * 16;
+
+        if (q4_0_layout == Q4_0_LAYOUT_ADRENO_TRANSPOSED) {
+            global uchar * q = (global uchar *) src0;
+            global half * scales = (global half *) src0_d;
+            d = scales[ib * ne01 + r];
+            const float fd = (float)d;
+            for (int j = 0; j < 8; ++j) {
+                const int byte_idx = ih * 8 + j;
+                const int col = ib * 8 + byte_idx / 2;
+                const ulong q_offset = 2 * ((ulong)col * ne01 + r) + (byte_idx & 1);
+                const uint packed = q[q_offset];
+                dst_row[dst_base + 2*j + 0] = ((float)(packed & 0x0F) - 8.0f) * fd;
+                dst_row[dst_base + 2*j + 1] = ((float)(packed >> 4)   - 8.0f) * fd;
+            }
+        } else if (q4_0_layout == Q4_0_LAYOUT_ADRENO_MOE_TRANS4) {
+            global uchar * q = (global uchar *) src0;
+            global half * scales = (global half *) src0_d;
+            d = scales[(ulong)i02 * nb * ne01 + (ulong)ib * ne01 + r];
+            const float fd = (float)d;
+            for (int j = 0; j < 8; ++j) {
+                const int byte_idx = ih * 8 + j;
+                const int word_idx = byte_idx / 4;
+                const int byte_in_word = byte_idx & 3;
+                const ulong q_word_offset = ((ulong)i02 * nb * ne01 + (ulong)ib * ne01) * 4 + r + (ulong)word_idx * ne01;
+                const uint packed = q[4 * q_word_offset + byte_in_word];
+                dst_row[dst_base + 2*j + 0] = ((float)(packed & 0x0F) - 8.0f) * fd;
+                dst_row[dst_base + 2*j + 1] = ((float)(packed >> 4)   - 8.0f) * fd;
+            }
+        } else {
+            global uchar * q;
+            if (q4_0_layout == Q4_0_LAYOUT_SOA) {
+                global half * scales = (global half *) src0_d;
+                d = scales[row_block_offset + ib];
+                q = (global uchar *) src0 + (row_block_offset + ib) * (QK4_0 / 2);
+            } else {
+                global struct block_q4_0 * b = (global struct block_q4_0 *) ((global char *) src0 + row_byte_offset) + ib;
+                d = b->d;
+                q = (global uchar *) &b->qs[0];
+            }
+
+            const float fd = (float)d;
+            for (int j = 0; j < 8; ++j) {
+                uint packed;
+                if (ih == 0) {
+                    packed = (q[2*j + 0] & 0x0F) | ((q[2*j + 1] & 0x0F) << 4);
+                } else {
+                    packed = ((q[2*j + 0] & 0xF0) >> 4) | (q[2*j + 1] & 0xF0);
+                }
+                dst_row[dst_base + 2*j + 0] = ((float)(packed & 0x0F) - 8.0f) * fd;
+                dst_row[dst_base + 2*j + 1] = ((float)(packed >> 4)   - 8.0f) * fd;
+            }
         }
-        dequantize_q4_0_f32(
-            ((global struct block_q4_0 *) ((global char *) src0 + r*nb01 + i02*nb02 + i03*nb03)) + ind/NL, ind%NL, &temp);
-        *(((global float16 *) ((global char *) dst + i12*nb3 + i11*nb2 + i10*nb1)) + ind) = temp;
     }
 }
