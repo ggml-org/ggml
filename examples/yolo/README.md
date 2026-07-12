@@ -6,7 +6,7 @@ Download the model weights:
 
 ```bash
 $ wget https://pjreddie.com/media/files/yolov3-tiny.weights
-$ sha1sum yolov3-tiny.weights 
+$ sha1sum yolov3-tiny.weights
 40f3c11883bef62fd850213bc14266632ed4414f  yolov3-tiny.weights
 ```
 
