@@ -35,23 +35,39 @@ kernel void kernel_gemm_noshuffle_q4_0_f32(
     int gx = get_global_id(1);
     int gx_2 = gx << 2;
 
-    half8 c0 = 0, c1 = 0, c2 = 0, c3 = 0; // 8x4 output elements
-    half8 B; // registers for activations
-    half4 dequantized_weights; // registers for dequantized weights
+#ifdef USE_F32_ACT
+#define ACC_TYPE float8
+#define ACT_TYPE float8
+#define WEIGHT_TYPE float4
+#define SCALE_TYPE float4
+#define LOAD_ACT4(img, idx) read_imagef((img), (idx))
+#define LOAD_SCALE4(ptr) convert_float4(vload4(0, (ptr)))
+#else
+#define ACC_TYPE half8
+#define ACT_TYPE half8
+#define WEIGHT_TYPE half4
+#define SCALE_TYPE half4
+#define LOAD_ACT4(img, idx) read_imageh((img), (idx))
+#define LOAD_SCALE4(ptr) vload4(0, (ptr))
+#endif
+
+    ACC_TYPE c0 = 0, c1 = 0, c2 = 0, c3 = 0; // 8x4 output elements
+    ACT_TYPE B; // registers for activations
+    WEIGHT_TYPE dequantized_weights; // registers for dequantized weights
     __global const ushort* weight_ptr = src0_q + gx_2; // pointer for weights
     __global const half* scale_ptr = src0_d + gx_2; // pointer for scales
 
     for(int i=0; i<k; i+=4){ //loop through K dimension
 
-        B.s0123 = read_imageh(src1, gy*2 + (i)*(n_4));
-        B.s4567 = read_imageh(src1, gy*2 + (i)*(n_4)+1);
+        B.s0123 = LOAD_ACT4(src1, gy*2 + (i)*(n_4));
+        B.s4567 = LOAD_ACT4(src1, gy*2 + (i)*(n_4)+1);
 
         // keep (i/4) and (i/32) in parenthesis, rounds down
         // load 4 consecutive groups of 4 weights
         ushort4 bits4 = vload4(0, weight_ptr + (i/4)*(m)); // (i/4) because weights grouped in 4s
 
         // load 4 consecutive scales
-        half4 scale = vload4(0, scale_ptr + (i/32)*(m));// (i/32) because 1 scale per 32 elements
+        SCALE_TYPE scale = LOAD_SCALE4(scale_ptr + (i/32)*(m));// (i/32) because 1 scale per 32 elements
 
         // j=0
         dequantized_weights.s0 = ((bits4.s0 & (0x000F)) - 8) * scale.s0; // dequantize a row of the 16 weights
@@ -64,8 +80,8 @@ kernel void kernel_gemm_noshuffle_q4_0_f32(
         c3 += B * dequantized_weights.s3;
 
         // j=1
-        B.s0123 = read_imageh(src1, gy*2 + (i+1)*(n_4));
-        B.s4567 = read_imageh(src1, gy*2 + (i+1)*(n_4)+1);
+        B.s0123 = LOAD_ACT4(src1, gy*2 + (i+1)*(n_4));
+        B.s4567 = LOAD_ACT4(src1, gy*2 + (i+1)*(n_4)+1);
         dequantized_weights.s0 = (((bits4.s0 & (0x00F0)) >> 4) - 8) * scale.s0; // dequantize a row of the 16 weights
         dequantized_weights.s1 = (((bits4.s1 & (0x00F0)) >> 4) - 8) * scale.s1;
         dequantized_weights.s2 = (((bits4.s2 & (0x00F0)) >> 4) - 8) * scale.s2;
@@ -76,8 +92,8 @@ kernel void kernel_gemm_noshuffle_q4_0_f32(
         c3 += B * dequantized_weights.s3;
 
         // j=2
-        B.s0123 = read_imageh(src1, gy*2 + (i+2)*(n_4));
-        B.s4567 = read_imageh(src1, gy*2 + (i+2)*(n_4)+1);
+        B.s0123 = LOAD_ACT4(src1, gy*2 + (i+2)*(n_4));
+        B.s4567 = LOAD_ACT4(src1, gy*2 + (i+2)*(n_4)+1);
         dequantized_weights.s0 = (((bits4.s0 & (0x0F00)) >> 8) - 8) * scale.s0; // dequantize a row of the 16 weights
         dequantized_weights.s1 = (((bits4.s1 & (0x0F00)) >> 8) - 8) * scale.s1;
         dequantized_weights.s2 = (((bits4.s2 & (0x0F00)) >> 8) - 8) * scale.s2;
@@ -88,8 +104,8 @@ kernel void kernel_gemm_noshuffle_q4_0_f32(
         c3 += B * dequantized_weights.s3;
 
         // j=3
-        B.s0123 = read_imageh(src1, gy*2 + (i+3)*(n_4));
-        B.s4567 = read_imageh(src1, gy*2 + (i+3)*(n_4)+1);
+        B.s0123 = LOAD_ACT4(src1, gy*2 + (i+3)*(n_4));
+        B.s4567 = LOAD_ACT4(src1, gy*2 + (i+3)*(n_4)+1);
         dequantized_weights.s0 = (((bits4.s0 & (0xF000)) >> 12) - 8) * scale.s0; // dequantize a row of the 16 weights
         dequantized_weights.s1 = (((bits4.s1 & (0xF000)) >> 12) - 8) * scale.s1;
         dequantized_weights.s2 = (((bits4.s2 & (0xF000)) >> 12) - 8) * scale.s2;
@@ -136,4 +152,11 @@ kernel void kernel_gemm_noshuffle_q4_0_f32(
     if(idx+3 < m*n_no_padding){
         vstore4((float4)(c0.s7, c1.s7, c2.s7, c3.s7), 0, dst + idx);
     }
+
+#undef ACC_TYPE
+#undef ACT_TYPE
+#undef WEIGHT_TYPE
+#undef SCALE_TYPE
+#undef LOAD_ACT4
+#undef LOAD_SCALE4
 }
