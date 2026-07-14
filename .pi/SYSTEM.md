@@ -1,1 +1,1 @@
-gg/SYSTEM.md
+../AGENTS.md
