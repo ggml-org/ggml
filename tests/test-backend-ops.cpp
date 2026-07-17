@@ -8995,6 +8995,32 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 4, 2, false, 64, 16, 3*ggml_blck_size(type_a)));
     }
 
+    // K-quant MoE matmul shapes for ggml-org/ggml#1506
+    // (a) Reporter-stated OLMoE shape (note: reporter's n_mats=8/n_used=2 doesn't match
+    //     OLMoE-1B-7B's real 64-expert/top-8 topology — testing both)
+    for (ggml_type type_a : {GGML_TYPE_Q4_K, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K}) {
+        test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 8, 2, false, 2048, 1, 4096));
+    }
+    // (b) OLMoE-1B-7B real topology: 64 experts, top-8 routing.
+    //     gate_proj/up_proj out=1024 in=2048, down_proj out=2048 in=1024
+    for (ggml_type type_a : {GGML_TYPE_Q4_K, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K, GGML_TYPE_Q2_K, GGML_TYPE_Q3_K}) {
+        for (int n : {1, 32, 128}) {
+            test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 64, 8, false, 1024, n, 2048));
+            test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 64, 8, false, 2048, n, 1024));
+        }
+    }
+    // (c) Super-block IQ-quants at OLMoE topology
+    for (ggml_type type_a : {GGML_TYPE_IQ2_XS, GGML_TYPE_IQ3_S, GGML_TYPE_IQ4_NL, GGML_TYPE_IQ4_XS}) {
+        for (int n : {1, 32}) {
+            test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 64, 8, false, 1024, n, 2048));
+        }
+    }
+    // (d) b_transposed=true variant at OLMoE shape
+    for (ggml_type type_a : {GGML_TYPE_Q4_K, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K}) {
+        test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 64, 8, true, 1024, 1, 2048));
+        test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 64, 8, true, 2048, 1, 1024));
+    }
+
     for (ggml_type type_a : base_types) {
         for (ggml_type type_b : {GGML_TYPE_F32 /*, GGML_TYPE_F16 */}) {
             for (int n_mats : {4, 8}) {
