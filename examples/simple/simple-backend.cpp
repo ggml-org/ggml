@@ -51,7 +51,7 @@ float matrix_B[rows_B * cols_B] = {
 };
 
 
-// initialize the tensors of the model in this case two matrices 2x2
+// initialize the backends and scheduler
 void init_model(simple_model & model) {
     ggml_log_set(ggml_log_callback_default, nullptr);
 
