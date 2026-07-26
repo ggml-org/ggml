@@ -11216,3 +11216,97 @@ kernel void kernel_count_equal(
 typedef decltype(kernel_count_equal<int32_t>) kernel_count_equal_t;
 
 template [[host_name("kernel_count_equal_i32")]] kernel kernel_count_equal_t kernel_count_equal<int32_t>;
+
+// IM2COL 3D: [N*IC, ID, IH, IW] => [N*OD, OH, OW, IC * KD * KH * KW]
+//
+// Optimized Metal kernel:
+//   Grid:     [OW, OH, ceil(IC * N_OD / ntptg0_per_kd)]
+//   Threadgroup: [KW, KH, KD * ntptg0_per_kd]
+//
+// Key optimizations:
+//   1. tpitg[0] = ikw (fastest varying) → coalesced writes to consecutive memory
+//   2. tpitg[1] = ikh, tpitg[2] = ikd + sub_idx*KD
+//   3. int64_t for all offsets (prevents overflow for large tensors)
+//   4. Correct padding: write 0 for ANY out-of-bounds coordinate
+//   5. No shared memory barrier needed (each thread computes its own indices)
+//   6. Bounds checks hoisted: depth/height early-exit with 0 write, not bare return
+
+typedef void (im2col_3d_t)(
+        constant ggml_metal_kargs_im2col_3d & args,
+        device const float * x,
+        device        char * dst,
+        uint3 tgpig[[threadgroup_position_in_grid]],
+        uint3  tgpg[[threadgroups_per_grid]],
+        uint3 tpitg[[thread_position_in_threadgroup]],
+        uint3   ntg[[threads_per_threadgroup]]);
+
+template <typename T>
+kernel void kernel_im2col_3d(
+        constant ggml_metal_kargs_im2col_3d & args,
+        device const float * x,
+        device        char * dst,
+        uint3 tgpig[[threadgroup_position_in_grid]],
+        uint3  tgpg[[threadgroups_per_grid]],
+        uint3 tpitg[[thread_position_in_threadgroup]],
+        uint3   ntg[[threads_per_threadgroup]]) {
+
+    // Decode kernel dimensions from threadgroup position
+    // Threadgroup layout: [KW, KH, KD * ntptg0_per_kd]
+    const int64_t ikw = (int64_t)tpitg[0];                      // kernel width  (fastest → coalesced writes)
+    const int64_t ikh = (int64_t)tpitg[1];                      // kernel height
+    const int64_t ikd = (int64_t)tpitg[2] % args.KD;           // kernel depth
+    const int64_t sub_idx = (int64_t)tpitg[2] / args.KD;       // sub-index within IC*N_OD space
+
+    // Output spatial indices from grid
+    const int64_t iow = (int64_t)tgpig[0];                      // output width
+    const int64_t ioh = (int64_t)tgpig[1];                      // output height
+
+    // Flat index across IC and N_OD dimensions
+    const int64_t flat_idx = (int64_t)tgpig[2] * (int64_t)(ntg[2] / args.KD) + sub_idx;
+
+    // Decode flat_idx → iic, in_batch, iod
+    const int64_t iic      = flat_idx / args.N_OD;
+    const int64_t i_nod    = flat_idx % args.N_OD;
+    const int64_t in_batch = i_nod / args.OD;
+    const int64_t iod      = i_nod % args.OD;
+
+    // Bounds check - skip if beyond valid range
+    if (iic >= args.IC) {
+        return;
+    }
+
+    // Compute source coordinates
+    const int64_t iiw = iow * args.s0 + ikw * args.d0 - args.p0;
+    const int64_t iih = ioh * args.s1 + ikh * args.d1 - args.p1;
+    const int64_t iid = iod * args.s2 + ikd * args.d2 - args.p2;
+
+    // Compute destination offset
+    // dst layout: [N*OD, OH, OW, IC, KD, KH, KW] (row-major: KW innermost)
+    const int64_t offset_dst =
+        ((in_batch * args.OD + iod) * args.OH * args.OW + ioh * args.OW + iow) * args.IC_KD_KH_KW
+      + iic * args.KD_KH_KW
+      + ikd * args.KH_KW
+      + ikh * args.KW
+      + ikw;
+
+    // Cast destination pointer to typed pointer
+    device T * pdst = (device T *) (dst);
+
+    // Check bounds for ALL coordinates (matching CPU behavior)
+    if (iid < 0 || iid >= args.ID || iih < 0 || iih >= args.IH || iiw < 0 || iiw >= args.IW) {
+        pdst[offset_dst] = (T)0.0f;
+    } else {
+        // Compute source offset (element stride based)
+        // Cast strides to int64_t (they are uint64_t in struct but always fit)
+        const int64_t offset_src =
+            (in_batch * args.IC + iic) * (int64_t)args.stride_q
+          + iid * (int64_t)args.stride_z
+          + iih * (int64_t)args.stride_y
+          + iiw * (int64_t)args.stride_x;
+
+        pdst[offset_dst] = (T)x[offset_src];
+    }
+}
+
+template [[host_name("kernel_im2col_3d_f32")]] kernel im2col_3d_t kernel_im2col_3d<float>;
+template [[host_name("kernel_im2col_3d_f16")]] kernel im2col_3d_t kernel_im2col_3d<half>;

@@ -714,6 +714,42 @@ typedef struct {
     int32_t  IW;
     int32_t  IH;
     int32_t  ID;
+    int32_t  IC;
+    int32_t  KW;
+    int32_t  KH;
+    int32_t  KD;
+    int32_t  OH;
+    int32_t  OW;
+    int32_t  OD;
+    int32_t  s0;    // stride width
+    int32_t  s1;    // stride height
+    int32_t  s2;    // stride depth
+    int32_t  p0;    // padding width
+    int32_t  p1;    // padding height
+    int32_t  p2;    // padding depth
+    int32_t  d0;    // dilation width
+    int32_t  d1;    // dilation height
+    int32_t  d2;    // dilation depth
+    int32_t  KD_KH_KW;          // precomputed: KD * KH * KW
+    int32_t  KH_KW;             // precomputed: KH * KW
+    int32_t  IC_KD_KH_KW;       // precomputed: IC * KD * KH * KW
+    int32_t  N_OD;              // precomputed: N * OD (for grid mapping)
+    int32_t  N_OD_OH;           // precomputed: N * OD * OH
+    int32_t  OD_OH;             // precomputed: OD * OH
+    int64_t  OD_OH_OW_IC_KD_KH_KW; // precomputed: output batch stride
+    int64_t  OH_OW_IC_KD_KH_KW;    // precomputed
+    int64_t  OW_IC_KD_KH_KW;       // precomputed
+    uint64_t stride_x;          // source element stride x
+    uint64_t stride_y;          // source element stride y
+    uint64_t stride_z;          // source element stride z
+    uint64_t stride_q;          // source element stride q (batch*IC)
+    uint64_t ofs0;              // source offset for batch stride (in elements)
+} ggml_metal_kargs_im2col_3d;
+
+typedef struct {
+    int32_t  IW;
+    int32_t  IH;
+    int32_t  ID;
     int32_t  OW;
     int32_t  OH;
     int32_t  OD;
