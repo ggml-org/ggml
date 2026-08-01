@@ -383,6 +383,10 @@ static int ggml_metal_op_encode_impl(ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = ggml_metal_op_im2col(ctx, idx);
             } break;
+        case GGML_OP_IM2COL_3D:
+            {
+                n_fuse = ggml_metal_op_im2col_3d(ctx, idx);
+            } break;
         case GGML_OP_CONV_2D:
             {
                 n_fuse = ggml_metal_op_conv_2d(ctx, idx);
@@ -3768,6 +3772,145 @@ int ggml_metal_op_im2col(ggml_metal_op_t ctx, int idx) {
 
         ggml_metal_encoder_dispatch_threadgroups(enc, quotient * CHW, OH, OW, n_threads, 1, 1);
     }
+
+    return 1;
+}
+
+int ggml_metal_op_im2col_3d(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+
+    ggml_metal_library_t lib = ctx->lib;
+    ggml_metal_encoder_t enc = ctx->enc;
+
+    GGML_TENSOR_LOCALS(uint64_t, nb1, op->src[1], nb);
+    GGML_TENSOR_LOCALS(int32_t, ne,  op,         ne);
+
+    // Extract hyperparams from op_params
+    // Order: s0, s1, s2, p0, p1, p2, d0, d1, d2, IC
+    const int32_t s0 = ((const int32_t *)(op->op_params))[0];
+    const int32_t s1 = ((const int32_t *)(op->op_params))[1];
+    const int32_t s2 = ((const int32_t *)(op->op_params))[2];
+    const int32_t p0 = ((const int32_t *)(op->op_params))[3];
+    const int32_t p1 = ((const int32_t *)(op->op_params))[4];
+    const int32_t p2 = ((const int32_t *)(op->op_params))[5];
+    const int32_t d0 = ((const int32_t *)(op->op_params))[6];
+    const int32_t d1 = ((const int32_t *)(op->op_params))[7];
+    const int32_t d2 = ((const int32_t *)(op->op_params))[8];
+    const int32_t IC = ((const int32_t *)(op->op_params))[9];
+
+    // Dimensions from tensor shapes
+    // src[1] = input:  [N*IC, ID, IH, IW]
+    // src[0] = kernel: [OC*IC, KD, KH, KW]
+    // dst:             [N*OD, OH, OW, IC*KD*KH*KW]
+    const int32_t N  = op->src[1]->ne[3] / IC;
+    const int32_t ID = op->src[1]->ne[2];
+    const int32_t IH = op->src[1]->ne[1];
+    const int32_t IW = op->src[1]->ne[0];
+
+    const int32_t KD = op->src[0]->ne[2];
+    const int32_t KH = op->src[0]->ne[1];
+    const int32_t KW = op->src[0]->ne[0];
+
+    const int32_t OD = ne3 / N;
+    const int32_t OH = ne2;
+    const int32_t OW = ne1;
+
+    // Precomputed products (save GPU ALU)
+    const int32_t KD_KH_KW              = KD * KH * KW;
+    const int32_t KH_KW                 = KH * KW;
+    const int32_t IC_KD_KH_KW           = IC * KD_KH_KW;
+    const int64_t N_OD                  = (int64_t)N * OD;
+    const int32_t OD_OH                 = OD * OH;
+    const int32_t N_OD_OH               = N * OD_OH;
+    const int64_t OH_OW                 = (int64_t)OH * OW;
+    const int64_t OD_OH_OW              = (int64_t)OD * OH_OW;
+    const int64_t OD_OH_OW_IC_KD_KH_KW  = OD_OH_OW * IC_KD_KH_KW;
+    const int64_t OH_OW_IC_KD_KH_KW     = OH_OW * IC_KD_KH_KW;
+    const int64_t OW_IC_KD_KH_KW        = (int64_t)OW * IC_KD_KH_KW;
+
+    // Source byte strides → element strides
+    const size_t  es        = ggml_element_size(op->src[1]);
+    const uint64_t stride_x = nb10 / es;   // element stride along W
+    const uint64_t stride_y = nb11 / es;   // element stride along H
+    const uint64_t stride_z = nb12 / es;   // element stride along D
+    const uint64_t stride_q = nb13 / es;   // element stride along batch
+    const uint64_t ofs0     = stride_q;    // for batch loop
+
+    // Build GPU args
+    ggml_metal_kargs_im2col_3d args = {
+        /*.IW =*/ IW,
+        /*.IH =*/ IH,
+        /*.ID =*/ ID,
+        /*.IC =*/ IC,
+        /*.KW =*/ KW,
+        /*.KH =*/ KH,
+        /*.KD =*/ KD,
+        /*.OH =*/ OH,
+        /*.OW =*/ OW,
+        /*.OD =*/ OD,
+        s0, s1, s2, p0, p1, p2, d0, d1, d2,
+        /*.KD_KH_KW =*/              KD_KH_KW,
+        /*.KH_KW =*/                 KH_KW,
+        /*.IC_KD_KH_KW =*/           IC_KD_KH_KW,
+        /*.N_OD =*/                  (int32_t)N_OD,
+        /*.N_OD_OH =*/               N_OD_OH,
+        /*.OD_OH =*/                 OD_OH,
+        /*.OD_OH_OW_IC_KD_KH_KW =*/  OD_OH_OW_IC_KD_KH_KW,
+        /*.OH_OW_IC_KD_KH_KW =*/     OH_OW_IC_KD_KH_KW,
+        /*.OW_IC_KD_KH_KW =*/        OW_IC_KD_KH_KW,
+        /*.stride_x =*/ stride_x,
+        /*.stride_y =*/ stride_y,
+        /*.stride_z =*/ stride_z,
+        /*.stride_q =*/ stride_q,
+        /*.ofs0 =*/     ofs0,
+    };
+
+    // Fetch JIT pipeline
+    auto pipeline = ggml_metal_library_get_pipeline_im2col_3d(lib, op);
+
+    // Grid mapping - optimized for coalesced writes
+    // Grid:     [OW, OH, ceil(IC * N_OD / ntptg0_per_kd)]
+    // Threadgroup: [KW, KH, KD * ntptg0_per_kd]
+    //
+    // tpitg[0] = ikw (fastest varying) → writes to consecutive memory addresses
+    // tpitg[1] = ikh
+    // tpitg[2] = ikd + sub_idx * KD  (sub_idx covers IC*N_OD space)
+    //
+    // This layout ensures threads within a SIMD group write to consecutive
+    // output elements (KW innermost in memory), maximizing memory coalescing.
+    const int64_t max_threads = ggml_metal_pipeline_max_theads_per_threadgroup(pipeline);
+
+    // Calculate how many IC*N_OD sub-elements we can fit per threadgroup
+    const int64_t kernel_vol = (int64_t)KW * KH * KD;
+    const int64_t max_ic_nod_per_tg = kernel_vol < max_threads ? max_threads / kernel_vol : 1;
+
+    // Also respect max Z dimension for threadgroup (typically 512 on Apple GPUs)
+    const int64_t max_tg_z = 512;
+    const int64_t max_ic_nod_by_z = KD > 0 ? max_tg_z / KD : 1;
+
+    const int64_t IC_N_OD = (int64_t)IC * N_OD;
+    const int64_t ntptg0_per_kd = std::min({max_ic_nod_per_tg, max_ic_nod_by_z, IC_N_OD});
+
+    // Z dimension of threadgroup = KD * ntptg0_per_kd
+    const int64_t ntg_z = KD * ntptg0_per_kd;
+
+    // Number of threadgroups needed to cover all IC * N_OD positions
+    const int64_t ntg_g_z = ntptg0_per_kd > 0 ? (IC_N_OD + ntptg0_per_kd - 1) / ntptg0_per_kd : 1;
+
+    ggml_metal_encoder_set_pipeline(enc, pipeline);
+    ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op->src[1]), 1);
+    ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op),         2);
+
+    // Grid: [OW, OH, ntg_g_z]
+    // Threadgroup: [KW, KH, ntg_z]
+    ggml_metal_encoder_dispatch_threadgroups(enc,
+        OW,             // grid.x  (output width)
+        OH,             // grid.y  (output height)
+        ntg_g_z,        // grid.z  (IC * N_OD / ntptg0_per_kd)
+        KW,             // threadgroup.x  (kernel width - fastest for coalesced writes!)
+        KH,             // threadgroup.y  (kernel height)
+        ntg_z);         // threadgroup.z  (KD * ntptg0_per_kd)
 
     return 1;
 }
