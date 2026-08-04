@@ -119,6 +119,10 @@ static void ggml_cuda_flash_attn_ext_mma_f16(ggml_backend_cuda_context & ctx, gg
     const ggml_tensor * mask = dst->src[3];
 
     switch (Q->ne[0]) {
+        case 32:
+            GGML_ASSERT(V->ne[0] == 32);
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2< 32,  32>(ctx, dst);
+            break;
         case 64:
             GGML_ASSERT(V->ne[0] == 64);
             ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2< 64,  64>(ctx, dst);
@@ -391,6 +395,7 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
     const int cc = ggml_cuda_info().devices[device].cc;
 
     switch (K->ne[0]) {
+        case  32:
         case  40:
         case  64:
         case  72:
@@ -488,7 +493,7 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
         gqa_ratio_eff *= 2;
     }
 
-    if (volta_mma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72) {
+    if (volta_mma_available(cc) && Q->ne[0] != 32 && Q->ne[0] != 40 && Q->ne[0] != 72) {
         if (can_use_vector_kernel && Q->ne[1] * gqa_ratio_eff <= 2) {
             return BEST_FATTN_KERNEL_VEC;
         }
@@ -499,7 +504,7 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
     }
 
     // AMD MFMA needs a certain minimum batch size to outscale the tile kernel for large head sizes.
-    if ((amd_mfma_available(cc) && Q->ne[0] <= 256) && Q->ne[0] != 40 && Q->ne[0] != 72) {
+    if ((amd_mfma_available(cc) && Q->ne[0] <= 256) && Q->ne[0] != 32 && Q->ne[0] != 40 && Q->ne[0] != 72) {
         if ((Q->ne[0] <= 64 && Q->ne[1] * gqa_ratio_eff > 8)) {
             return BEST_FATTN_KERNEL_MMA_F16;
         }
@@ -512,7 +517,7 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
     }
 
     // AMD WMMA is always faster than the tile kernel if the full tile width of 16 can be utilized.
-    if ((amd_wmma_available(cc) && gqa_opt_applies && Q->ne[0] <= 128) && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[1] * gqa_ratio_eff > 8) {
+    if ((amd_wmma_available(cc) && gqa_opt_applies && Q->ne[0] <= 128) && Q->ne[0] != 32 && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[1] * gqa_ratio_eff > 8) {
         return BEST_FATTN_KERNEL_MMA_F16;
     }
 
