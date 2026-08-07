@@ -3,7 +3,7 @@ project(ggml-simple)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(ggml CONFIG REQUIRED)
+find_package(ggml 0.19.0 REQUIRED)
 
 set(TEST_TARGET test-cmake)
 add_executable(test-cmake test-cmake.cpp)
