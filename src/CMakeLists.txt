@@ -267,11 +267,6 @@ function(ggml_add_backend_library backend)
         add_library(${backend} MODULE ${ARGN})
         # write the shared library to the output directory
         set_target_properties(${backend} PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-        if (WIN32)
-            set_target_properties(${backend} PROPERTIES SUFFIX "-${GGML_VERSION}${CMAKE_SHARED_MODULE_SUFFIX}")
-        else()
-            set_target_properties(${backend} PROPERTIES SUFFIX "${CMAKE_SHARED_MODULE_SUFFIX}.${GGML_VERSION}")
-        endif()
         target_compile_definitions(${backend} PRIVATE GGML_BACKEND_DL)
         add_dependencies(ggml ${backend})
         if (GGML_BACKEND_DIR)
@@ -293,11 +288,9 @@ function(ggml_add_backend_library backend)
         target_compile_definitions(${backend} PUBLIC  GGML_BACKEND_SHARED)
     endif()
 
-    # Linked backends use CMake shared-library versioning. Dynamic backends
-    # use a versioned module suffix from above and do not need symlinks. This
-    # is done so that backends have a version in there file names to avoid
-    # new versions overwriting previously installed versions.
-    if (NOT GGML_BACKEND_DL)
+    # Set versioning properties for all backend libraries
+    # Building a MODULE library with a version is not supported on macOS (https://gitlab.kitware.com/cmake/cmake/-/issues/20782)
+    if (NOT (APPLE AND GGML_BACKEND_DL))
         set_target_properties(${backend} PROPERTIES
             VERSION ${GGML_VERSION}
             SOVERSION ${GGML_VERSION_MAJOR}

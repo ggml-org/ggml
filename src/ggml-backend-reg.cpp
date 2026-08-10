@@ -469,19 +469,19 @@ static fs::path backend_filename_prefix() {
 #endif
 }
 
-static fs::path backend_filename_suffix() {
+static fs::path backend_filename_extension() {
 #ifdef _WIN32
-    return fs::u8path(std::string("-") + ggml_version() + ".dll");
+    return fs::u8path(".dll");
 #else
-    return fs::u8path(std::string(".so.") + ggml_version());
+    return fs::u8path(".so");
 #endif
 }
 
 static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent, const char * user_search_path) {
-    // enumerate all backend modules compatible with this ggml version
+    // enumerate all the files that match [lib]ggml-name-*.[so|dll] in the search paths
     const fs::path name_path = fs::u8path(name);
     const fs::path file_prefix = backend_filename_prefix().native() + name_path.native() + fs::u8path("-").native();
-    const fs::path file_suffix = backend_filename_suffix();
+    const fs::path file_extension = backend_filename_extension();
 
     std::vector<fs::path> search_paths;
     if (user_search_path == nullptr) {
@@ -512,12 +512,8 @@ static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent,
         for (const auto & entry : dir_it) {
             if (entry.is_regular_file(ec)) {
                 auto filename = entry.path().filename();
-                const auto & filename_native = filename.native();
-                const auto & suffix_native = file_suffix.native();
-                if (filename_native.find(file_prefix.native()) == 0 &&
-                    filename_native.size() >= suffix_native.size() &&
-                    filename_native.compare(filename_native.size() - suffix_native.size(),
-                        suffix_native.size(), suffix_native) == 0) {
+                auto ext = entry.path().extension();
+                if (filename.native().find(file_prefix) == 0 && ext == file_extension) {
                     dl_handle_ptr handle { dl_load_library(entry) };
                     if (!handle && !silent) {
                         GGML_LOG_ERROR("%s: failed to load %s: %s\n", __func__, path_str(entry.path()).c_str(), dl_error());
@@ -547,7 +543,7 @@ static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent,
     if (best_score == 0) {
         // try to load the base backend
         for (const auto & search_path : search_paths) {
-            fs::path filename = backend_filename_prefix().native() + name_path.native() + backend_filename_suffix().native();
+            fs::path filename = backend_filename_prefix().native() + name_path.native() + backend_filename_extension().native();
             fs::path path = search_path / filename;
             if (std::error_code ec; fs::exists(path, ec)) {
                 return get_reg().load_backend(path, silent);

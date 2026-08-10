@@ -12,7 +12,7 @@ cmake --fresh -S ../../. -B $build_dir -DCMAKE_BUILD_TYPE=Release \
   -DGGML_BACKEND_DL=ON \
   -DGGML_CPU_ALL_VARIANTS=ON \
   -DCMAKE_INSTALL_PREFIX="${PWD}/${install_dir}" \
-  -DGGML_BACKEND_DIR="${PWD}/${install_dir}/lib"
+  -DGGML_BACKEND_DIR="${PWD}/${install_dir}/lib/ggml"
 
 cmake --build $build_dir --parallel 12
 cmake --install $build_dir
