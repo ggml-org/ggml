@@ -78,8 +78,24 @@ struct ggml_metal {
 
     // error state - set when a command buffer fails during synchronize
     // once set, graph_compute will return GGML_STATUS_FAILED until the backend is recreated
+    // transient failures (e.g. iOS background GPU rejection) do not latch this flag
     bool has_error;
 };
+
+static bool ggml_metal_error_is_transient(NSError * error) {
+    if (!error) {
+        return false;
+    }
+    NSString * desc = error.localizedDescription ?: @"";
+    // iOS rejects GPU work while backgrounded without a background-GPU grant
+    if ([desc rangeOfString:@"Background Execution Not Permitted" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        return true;
+    }
+    if ([desc rangeOfString:@"kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        return true;
+    }
+    return false;
+}
 
 ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
     GGML_LOG_INFO("%s: allocating\n", __func__);
@@ -256,8 +272,14 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
             MTLCommandBufferStatus status = [cmd_buf status];
             if (status != MTLCommandBufferStatusCompleted) {
                 GGML_LOG_ERROR("%s: error: command buffer %d failed with status %d\n", __func__, cb_idx, (int) status);
+                NSError * err = nil;
                 if (status == MTLCommandBufferStatusError) {
-                    GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
+                    err = [cmd_buf error];
+                    GGML_LOG_ERROR("error: %s\n", [err.localizedDescription UTF8String]);
+                }
+                if (ggml_metal_error_is_transient(err)) {
+                    GGML_LOG_WARN("%s: transient Metal error — backend remains usable\n", __func__);
+                    return;
                 }
                 ctx->has_error = true;
                 return;
@@ -273,8 +295,10 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
             MTLCommandBufferStatus status = [cmd_buf status];
             if (status != MTLCommandBufferStatusCompleted) {
                 GGML_LOG_ERROR("%s: error: command buffer %d failed with status %d\n", __func__, (int) i, (int) status);
+                NSError * err = nil;
                 if (status == MTLCommandBufferStatusError) {
-                    GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
+                    err = [cmd_buf error];
+                    GGML_LOG_ERROR("error: %s\n", [err.localizedDescription UTF8String]);
                 }
 
                 // release this and all remaining command buffers before returning
@@ -283,6 +307,10 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
                 }
                 [ctx->cmd_bufs_ext removeAllObjects];
 
+                if (ggml_metal_error_is_transient(err)) {
+                    GGML_LOG_WARN("%s: transient Metal error — backend remains usable\n", __func__);
+                    return;
+                }
                 ctx->has_error = true;
                 return;
             }
