@@ -6,7 +6,6 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/v/release/ggml-org/ggml?filter=v*)](https://github.com/ggml-org/ggml/releases)
-[![Nightly](https://img.shields.io/github/v/release/ggml-org/ggml?label=nightly)](https://github.com/ggml-org/ggml/releases)
 [![CI](https://github.com/ggml-org/ggml/actions/workflows/build-cpu.yml/badge.svg)](https://github.com/ggml-org/ggml/actions/workflows/build-cpu.yml)
 
 [GGUF file format](docs/gguf.md) / [ops](https://github.com/ggml-org/llama.cpp/blob/master/docs/ops.md) / [maintainer PRs](https://github.com/ggml-org/ggml/issues?q=is%3Apr%20is%3Aopen%20draft%3AFalse%20(author%3Argerganov%20OR%20author%3AKitaitiMakoto%20OR%20author%3Adanbev%20OR%20author%3Aaldehir%20OR%20author%3Amax-krasnyansky%20OR%20author%3ACISC%20OR%20author%3Aggerganov%20OR%20author%3Aam17an%20OR%20author%3Abartowski1182%20OR%20author%3Ahipudding%20OR%20author%3AServeurpersoCom%20OR%20author%3Apwilkin%20OR%20author%3Areeselevine%20OR%20author%3Angxson%20OR%20author%3Ajeffbolznv%20OR%20author%3A0cc4m%20OR%20author%3Aangt%20OR%20author%3AIMbackK%20OR%20author%3Aarthw%20OR%20author%3AJohannesGaessler%20OR%20author%3AORippler%20OR%20author%3Aruixiang63%20OR%20author%3Axctan%20OR%20author%3Aallozaur%20OR%20author%3Ayomaytk%20OR%20author%3Aaendk%20OR%20author%3Agaugarg-nv%20OR%20author%3Ataronaeo%20OR%20author%3Aforforever73%20OR%20author%3Alhez%20OR%20author%3Anetrunnereve%20OR%20author%3Afairydreaming)%20sort%3Aupdated-desc) / [GGML tips & tricks](https://github.com/ggml-org/llama.cpp/wiki/GGML-Tips-&-Tricks)
@@ -26,49 +25,7 @@ cmake ..
 cmake --build . --config Release -j 8
 ```
 
-A minimal example using ggml, performing a matrix multiplication:
-
-```c
-#include "ggml.h"
-#include "ggml-cpu.h"
-
-#include <stdio.h>
-#include <string.h>
-
-int main(void) {
-    ggml_time_init();
-
-    // 1. create a compute context (all memory is pre-allocated)
-    struct ggml_init_params params = {
-        .mem_size   = 1024*1024, // 1 MB
-        .mem_buffer = NULL,
-        .no_alloc   = false,
-    };
-    struct ggml_context * ctx = ggml_init(params);
-
-    // 2. create the input tensors (2 x 4 and 2 x 3 matrices)
-    struct ggml_tensor * a = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 2, 4);
-    struct ggml_tensor * b = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 2, 3);
-
-    // ... fill a->data and b->data ...
-
-    // 3. build the compute graph: result = a * b^T
-    struct ggml_cgraph * gf = ggml_new_graph(ctx);
-    struct ggml_tensor * result = ggml_mul_mat(ctx, a, b);
-    ggml_build_forward_expand(gf, result);
-
-    // 4. compute the graph on the CPU (4 threads)
-    ggml_graph_compute_with_ctx(ctx, gf, 4);
-
-    // 5. read the result from result->data
-    ...
-
-    ggml_free(ctx);
-    return 0;
-}
-```
-
-For a fully commented example, see [examples/simple](examples/simple).
+For a minimal, fully commented example (matrix multiplication), see [examples/simple](examples/simple).
 
 ## Description
 
