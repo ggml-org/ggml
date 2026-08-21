@@ -32,10 +32,10 @@ For a minimal, fully commented example (matrix multiplication), see [examples/si
 The main goal of `ggml` is to be a simple, portable, and efficient tensor library for machine learning with minimal setup.
 
 - Plain C/C++ implementation without any dependencies
-- Low-level, cross-platform support (x86, ARM, RISC-V, LoongArch, PowerPC, s390x, WebAssembly)
-- SIMD support - AVX, AVX2, AVX512 and AMX for x86; NEON, i8mm, dotprod and MLA for ARM (including KleidiAI kernels); RVV, ZVFH, ZFH, ZICBOP and ZIHINTPAUSE for RISC-V
-- Broad backend support - run the same graph on CPU, GPU, NPU, or in the browser
-- 1.5-bit, 2-bit, 3-bit, 4-bit, 5-bit, 6-bit, and 8-bit integer quantization, plus MXFP4 and NVFP4 microscaling formats, for faster inference and reduced memory use
+- Cross-platform - x86, ARM, RISC-V, LoongArch, PowerPC, s390x, and WebAssembly
+- SIMD-optimized kernels for x86, ARM, and RISC-V
+- Broad backend support - CPU, GPU, NPU, and browser
+- 2- to 8-bit integer quantization, plus MXFP4 and NVFP4 microscaling formats
 - Automatic differentiation
 - ADAM and L-BFGS optimizers
 - Zero memory allocations during runtime
