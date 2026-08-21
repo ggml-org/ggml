@@ -67,6 +67,7 @@
 #include "ggml-cuda/cumsum.cuh"
 #include "ggml-cuda/fill.cuh"
 #include "ggml-cuda/lightning-indexer.cuh"
+#include "ggml-cuda/win-part.cuh"
 #include "ggml.h"
 
 #include <algorithm>
@@ -2271,6 +2272,12 @@ static bool ggml_cuda_compute_forward(ggml_backend_cuda_context & ctx, struct gg
             break;
         case GGML_OP_CLAMP:
             ggml_cuda_op_clamp(ctx, dst);
+            break;
+        case GGML_OP_WIN_PART:
+            ggml_cuda_op_win_part(ctx, dst);
+            break;
+        case GGML_OP_WIN_UNPART:
+            ggml_cuda_op_win_unpart(ctx, dst);
             break;
         case GGML_OP_LOG:
             ggml_cuda_op_log(ctx, dst);
@@ -5188,6 +5195,8 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
         case GGML_OP_SIN:
         case GGML_OP_COS:
         case GGML_OP_CLAMP:
+        case GGML_OP_WIN_PART:
+        case GGML_OP_WIN_UNPART:
         case GGML_OP_LOG:
             return true;
         case GGML_OP_ADD:
