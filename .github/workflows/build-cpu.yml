@@ -11,58 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        libraries: [shared, static]
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-    - name: Clone
-      uses: actions/checkout@v6
-
-    - name: Dependencies for Ubuntu
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install llvm
-
-    - name: Add msbuild to PATH
-      if: matrix.os == 'windows-latest'
-      uses: microsoft/setup-msbuild@v2
-
-    - name: Create Build Environment
-      run: mkdir build
-
-    - name: Configure CMake
-      working-directory: ./build
-      run: cmake ..
-        ${{ contains(matrix.os, 'windows') && '-A x64' || '-G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++' }}
-        ${{ matrix.libraries == 'static' && '-DBUILD_SHARED_LIBS=OFF' || '-DBUILD_SHARED_LIBS=ON' }}
-        -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/installed
-        -DGGML_METAL=OFF
-
-    - name: Build
-      working-directory: ./build
-      run: cmake --build . ${{ contains(matrix.os, 'windows') && '--config Release' || '' }}
-
-    - name: Test
-      working-directory: ./build
-      run: ctest --verbose --timeout 900 ${{ contains(matrix.os, 'windows') && '--build-config Release' || '' }}
-
-    - name: Install
-      working-directory: ./build
-      run: cmake --build . --target install ${{ contains(matrix.os, 'windows') && '--config Release' || '' }}
-
-    - name: Test CMake config
-      run: |
-        mkdir test-cmake
-        cmake -S examples/test-cmake -B test-cmake -DCMAKE_PREFIX_PATH=${{ github.workspace }}/installed ${{ contains(matrix.os, 'windows') && '-A x64' || '-G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++' }}
-        cmake --build test-cmake ${{ contains(matrix.os, 'windows') && '--config Release' || '' }}
-
-# TODO: simplify the following workflows using a matrix
+  # TODO: simplify the following workflows using a matrix
   x64-cpu-low-perf:
     runs-on: ubuntu-22.04
 
