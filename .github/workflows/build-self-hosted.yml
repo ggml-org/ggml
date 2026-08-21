@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ggml-ci-x64-nvidia-cuda:
+  x64-nvidia-cuda:
     runs-on: [self-hosted, Linux, X64, NVIDIA]
 
     steps:
@@ -25,7 +25,7 @@ jobs:
           nvidia-smi
           GG_BUILD_CUDA=1 bash ./ci/run.sh ~/results/ggml /mnt/ggml
 
-  ggml-ci-x64-nvidia-vulkan-cm:
+  x64-nvidia-vulkan-cm:
     runs-on: [self-hosted, Linux, X64, NVIDIA]
 
     steps:
@@ -39,7 +39,7 @@ jobs:
           vulkaninfo --summary
           GG_BUILD_VULKAN=1 GGML_VK_DISABLE_COOPMAT2=1 bash ./ci/run.sh ~/results/ggml /mnt/ggml
 
-  ggml-ci-x64-nvidia-vulkan-cm2:
+  x64-nvidia-vulkan-cm2:
     runs-on: [self-hosted, Linux, X64, NVIDIA, COOPMAT2]
 
     steps:
@@ -54,7 +54,7 @@ jobs:
           GG_BUILD_VULKAN=1 bash ./ci/run.sh ~/results/ggml /mnt/ggml
 
   # TODO: provision AMX-compatible machine
-  #ggml-ci-x64-cpu-amx:
+  #x64-cpu-amx:
   #  runs-on: [self-hosted, Linux, X64, CPU, AMX]
 
   #  steps:
@@ -67,7 +67,7 @@ jobs:
   #      run: |
   #        bash ./ci/run.sh ~/results/ggml /mnt/ggml
 
-  ggml-ci-mac-metal:
+  mac-metal:
     runs-on: [self-hosted, macOS, ARM64]
 
     steps:
@@ -80,7 +80,7 @@ jobs:
         run: |
           GG_BUILD_METAL=1 bash ./ci/run.sh ~/results/ggml ~/mnt/ggml
 
-  ggml-ci-mac-vulkan:
+  mac-vulkan:
     runs-on: [self-hosted, macOS, ARM64]
 
     steps:
