@@ -415,8 +415,12 @@ static void ggml_cuda_op_bin_bcast(
 
     GGML_ASSERT(src1->type == GGML_TYPE_F32 || src1->type == GGML_TYPE_F16);
 
-    if (src0->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
+    if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
         op()(src0, src1, dst, (const float *)src0_dd, (const float *)src1_dd, (float *)dst_dd, stream);
+    } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F16 && dst->type == GGML_TYPE_F32) {
+        // F32 src0 x F16 src1: read src1 as `half` with half-strides so the
+        // f16 tensor stays in place (no upcast copy needed).
+        op()(src0, src1, dst, (const float *) src0_dd, (const half *)src1_dd, (float *)dst_dd, stream);
     } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_F16 && dst->type == GGML_TYPE_F16) {
         op()(src0, src1, dst, (const half *) src0_dd, (const half *)src1_dd, (half *) dst_dd, stream);
     } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F16) {
@@ -457,9 +461,13 @@ static void ggml_cuda_op_fused_binbcast_impl(ggml_backend_cuda_context & ctx, gg
     const ggml_tensor * src0 = dst->src[0];
     const ggml_tensor * src1 = dst->src[1];
 
-    if (src0->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
+    if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
         launch_bin_bcast_pack<op, float, float, float>(src0, src1, dst,
             (const float *) src0->data, (const float *) src1->data, (float *) dst->data,
+            stream, std::make_index_sequence<n_fuse>{});
+    } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F16 && dst->type == GGML_TYPE_F32) {
+        launch_bin_bcast_pack<op, float, half, float>(src0, src1, dst,
+            (const float *) src0->data, (const half *) src1->data, (float *) dst->data,
             stream, std::make_index_sequence<n_fuse>{});
     } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_F16 && dst->type == GGML_TYPE_F16) {
         launch_bin_bcast_pack<op, half, half, half>(src0, src1, dst,
