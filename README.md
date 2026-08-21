@@ -36,8 +36,6 @@ The main goal of `ggml` is to be a simple, portable, and efficient tensor librar
 - SIMD-optimized kernels for x86, ARM, and RISC-V
 - Broad backend support - CPU, GPU, NPU, and browser
 - 2- to 8-bit integer quantization, plus MXFP4 and NVFP4 microscaling formats
-- Automatic differentiation
-- ADAM and L-BFGS optimizers
 - Zero memory allocations during runtime
 
 ## Documentation
