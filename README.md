@@ -1,50 +1,94 @@
 # ggml
 
-[Manifesto](https://github.com/ggerganov/llama.cpp/discussions/205)
+<div align="center">
 
-Tensor library for machine learning
+<b>Tensor library for machine learning</b>
 
-***Note that this project is under active development. \
-Some of the development is currently happening in the [llama.cpp](https://github.com/ggerganov/llama.cpp) and [whisper.cpp](https://github.com/ggerganov/whisper.cpp) repos***
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/ggml-org/ggml?filter=v*)](https://github.com/ggml-org/ggml/releases)
+[![Nightly](https://img.shields.io/github/v/release/ggml-org/ggml?label=nightly)](https://github.com/ggml-org/ggml/releases)
+[![CI](https://github.com/ggml-org/ggml/actions/workflows/build-cpu.yml/badge.svg)](https://github.com/ggml-org/ggml/actions/workflows/build-cpu.yml)
 
-## Features
+[GGUF file format](docs/gguf.md) / [ops](https://github.com/ggml-org/llama.cpp/blob/master/docs/ops.md) / [maintainer PRs](https://github.com/ggml-org/ggml/issues?q=is%3Apr%20is%3Aopen%20draft%3AFalse%20(author%3Argerganov%20OR%20author%3AKitaitiMakoto%20OR%20author%3Adanbev%20OR%20author%3Aaldehir%20OR%20author%3Amax-krasnyansky%20OR%20author%3ACISC%20OR%20author%3Aggerganov%20OR%20author%3Aam17an%20OR%20author%3Abartowski1182%20OR%20author%3Ahipudding%20OR%20author%3AServeurpersoCom%20OR%20author%3Apwilkin%20OR%20author%3Areeselevine%20OR%20author%3Angxson%20OR%20author%3Ajeffbolznv%20OR%20author%3A0cc4m%20OR%20author%3Aangt%20OR%20author%3AIMbackK%20OR%20author%3Aarthw%20OR%20author%3AJohannesGaessler%20OR%20author%3AORippler%20OR%20author%3Aruixiang63%20OR%20author%3Axctan%20OR%20author%3Aallozaur%20OR%20author%3Ayomaytk%20OR%20author%3Aaendk%20OR%20author%3Agaugarg-nv%20OR%20author%3Ataronaeo%20OR%20author%3Aforforever73%20OR%20author%3Alhez%20OR%20author%3Anetrunnereve%20OR%20author%3Afairydreaming)%20sort%3Aupdated-desc) / [GGML tips & tricks](https://github.com/ggml-org/llama.cpp/wiki/GGML-Tips-&-Tricks)
 
-- Low-level cross-platform implementation
-- Integer quantization support
-- Broad hardware support
-- Automatic differentiation
-- ADAM and L-BFGS optimizers
-- No third-party dependencies
-- Zero memory allocations during runtime
+</div>
 
-## Build
+## Quick start
+
+Build from source:
 
 ```bash
 git clone https://github.com/ggml-org/ggml
 cd ggml
 
-# install python dependencies in a virtual environment
-python3.10 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# build the examples
 mkdir build && cd build
 cmake ..
 cmake --build . --config Release -j 8
 ```
 
-## GPT inference (example)
+A minimal example using ggml, performing a matrix multiplication:
 
-```bash
-# run the GPT-2 small 117M model
-../examples/gpt-2/download-ggml-model.sh 117M
-./bin/gpt-2-backend -m models/gpt-2-117M/ggml-model.bin -p "This is an example"
+```c
+#include "ggml.h"
+#include "ggml-cpu.h"
+
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    ggml_time_init();
+
+    // 1. create a compute context (all memory is pre-allocated)
+    struct ggml_init_params params = {
+        .mem_size   = 1024*1024, // 1 MB
+        .mem_buffer = NULL,
+        .no_alloc   = false,
+    };
+    struct ggml_context * ctx = ggml_init(params);
+
+    // 2. create the input tensors (2 x 4 and 2 x 3 matrices)
+    struct ggml_tensor * a = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 2, 4);
+    struct ggml_tensor * b = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 2, 3);
+
+    // ... fill a->data and b->data ...
+
+    // 3. build the compute graph: result = a * b^T
+    struct ggml_cgraph * gf = ggml_new_graph(ctx);
+    struct ggml_tensor * result = ggml_mul_mat(ctx, a, b);
+    ggml_build_forward_expand(gf, result);
+
+    // 4. compute the graph on the CPU (4 threads)
+    ggml_graph_compute_with_ctx(ctx, gf, 4);
+
+    // 5. read the result from result->data
+    ...
+
+    ggml_free(ctx);
+    return 0;
+}
 ```
 
-For more information, checkout the corresponding programs in the [examples](examples) folder.
+For a fully commented example, see [examples/simple](examples/simple).
 
-## Resources
+## Description
 
+The main goal of `ggml` is to be a simple, portable, and efficient tensor library for machine learning with minimal setup.
+
+- Plain C/C++ implementation without any dependencies
+- Low-level, cross-platform support (x86, ARM, RISC-V, LoongArch, PowerPC, s390x, WebAssembly)
+- SIMD support - AVX, AVX2, AVX512 and AMX for x86; NEON, i8mm, dotprod and MLA for ARM (including KleidiAI kernels); RVV, ZVFH, ZFH, ZICBOP and ZIHINTPAUSE for RISC-V
+- Broad backend support - run the same graph on CPU, GPU, NPU, or in the browser
+- 1.5-bit, 2-bit, 3-bit, 4-bit, 5-bit, 6-bit, and 8-bit integer quantization, plus MXFP4 and NVFP4 microscaling formats, for faster inference and reduced memory use
+- Automatic differentiation
+- ADAM and L-BFGS optimizers
+- Zero memory allocations during runtime
+
+## Documentation
+
+- [The GGUF file format](docs/gguf.md)
 - [Introduction to ggml](https://huggingface.co/blog/introduction-to-ggml)
-- [The GGUF file format](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md)
+- [GGML tips & tricks](https://github.com/ggml-org/llama.cpp/wiki/GGML-Tips-&-Tricks)
+
+## Contributing
+
+- For changes to the core `ggml` library (including to the CMake build system), please open a PR in [llama.cpp](https://github.com/ggml-org/llama.cpp) - doing so will make your PR more visible, better tested, and more likely to be reviewed
