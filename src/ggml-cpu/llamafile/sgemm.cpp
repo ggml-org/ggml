@@ -547,16 +547,45 @@ class tinyBLAS {
 
     template <int RM, int RN>
     inline void gemm_bloc(int64_t ii, int64_t jj) {
+        // WHERE THE OPERAND ADDRESSES COME FROM, and why aarch64 needs its own answer.
+        //
+        // Written as `A + lda * (ii + i) + l` against the members, GCC 14.2 on aarch64 (-O3,
+        // -mcpu=cortex-a72) does not form pointer induction variables over `l`: it re-derives all
+        // seven operand addresses every iteration, 8 `add` + 6 `lsl` wrapped around 12 `fmla` and
+        // 7 `ldr q` -- a 35-instruction loop where 21 do the same work. Hoisting the two bases and
+        // the strides into locals is enough for it to strength-reduce, and the loop drops to exactly
+        // the 21 a hand-written kernel gets.
+        //
+        // Measured on a Cortex-A72 over the eleven F32 GEMM shapes of a VITS vocoder, 4 threads,
+        // through this dispatcher, with the aarch64 tile fix also in place: **22.0 -> 24.9 GFLOP/s**,
+        // which is a hair faster than a standalone hand-written 4x4 kernel timed in the same process.
+        //
+        // NOT applied elsewhere, because it is not free: on x86-64 (AVX2, 16 GPRs) the same change
+        // measures 55.1 -> 53.6 GFLOP/s median of seven pinned runs and puts 12 more `%rsp` reads in
+        // the block -- there the compiler already forms the induction variables, and the extra live
+        // values only add pressure. clang/aarch64 is likewise neutral (24.0 vs 23.8) since it already
+        // did this. See loom.cpp BACKLOG.md P4.15.
+#if defined(__aarch64__)
+        const TA * const a0 = A + lda * ii;
+        const TB * const b0 = B + ldb * jj;
+        const int64_t la = lda, lb = ldb;
+        auto Aat = [&](int64_t i, int64_t l) { return a0 + la * i + l; };
+        auto Bat = [&](int64_t j, int64_t l) { return b0 + lb * j + l; };
+#else
+        auto Aat = [&](int64_t i, int64_t l) { return A + lda * (ii + i) + l; };
+        auto Bat = [&](int64_t j, int64_t l) { return B + ldb * (jj + j) + l; };
+#endif
+        const int64_t kk = k;
         D Cv[RN][RM] = {};
-        for (int64_t l = 0; l < k; l += KN) {
+        for (int64_t l = 0; l < kk; l += KN) {
             // help compiler for op order.
             if constexpr (RM <= RN) {
                 V Av[RM];
                 for (int64_t i = 0; i < RM; ++i) {
-                    Av[i] = load<V>(A + lda * (ii + i) + l);
+                    Av[i] = load<V>(Aat(i, l));
                 }
                 for (int64_t j = 0; j < RN; ++j) {
-                    V Bv = load<V>(B + ldb * (jj + j) + l);
+                    V Bv = load<V>(Bat(j, l));
                     for (int64_t i = 0; i < RM; ++i) {
                         Cv[j][i] = madd(Av[i], Bv, Cv[j][i]);
                     }
@@ -564,10 +593,10 @@ class tinyBLAS {
             } else {
                 V Bv[RN];
                 for (int64_t j = 0; j < RN; ++j) {
-                    Bv[j] = load<V>(B + ldb * (jj + j) + l);
+                    Bv[j] = load<V>(Bat(j, l));
                 }
                 for (int64_t i = 0; i < RM; ++i) {
-                    V Av = load<V>(A + lda * (ii + i) + l);
+                    V Av = load<V>(Aat(i, l));
                     for (int64_t j = 0; j < RN; ++j) {
                         Cv[j][i] = madd(Av, Bv[j], Cv[j][i]);
                     }
