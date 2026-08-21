@@ -3,8 +3,30 @@ name: release
 on:
   push:
     branches: [ master ]
+    paths:
+      - '.github/workflows/release.yml'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'ci/**'
+      - 'examples/**'
+      - 'ggml.pc.in'
+      - 'include/**'
+      - 'requirements.txt'
+      - 'src/**'
+      - 'tests/**'
   pull_request:
     branches: [ master ]
+    paths:
+      - '.github/workflows/release.yml'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'ci/**'
+      - 'examples/**'
+      - 'ggml.pc.in'
+      - 'include/**'
+      - 'requirements.txt'
+      - 'src/**'
+      - 'tests/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref && github.ref || github.run_id }}
