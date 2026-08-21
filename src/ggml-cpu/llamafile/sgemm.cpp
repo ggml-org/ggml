@@ -494,6 +494,34 @@ class tinyBLAS {
     bool matmul(int64_t m, int64_t n) {
         if (k % KN != 0)
             return false;
+        // WHY THE ROW COUNT IS SPLIT HERE. Every tile below is 4 rows tall, so the schedule chooser
+        // that follows only accepts m divisible by 4 -- and when it does not, this function returns
+        // false and ggml computes the ENTIRE matmul with its generic one-output-element-per-call
+        // kernel. One row out of alignment costs the other thousands their blocking.
+        //
+        // That is not a corner case in practice. A VITS vocoder's second-largest GEMM has m = 287 --
+        // a frame count, i.e. a number nothing rounds -- and at 4 threads on a Cortex-A72 it was 324
+        // ms of a 1.94 s synthesis, a third of all remaining mul_mat time, and unmoved by every other
+        // improvement to this file because none of it ever ran. Taking the aligned prefix and
+        // finishing the <= 3 leftover rows separately makes that bucket 190 ms, all four m = 287
+        // buckets 354 -> 208 ms, and the synthesis 1.94 -> 1.79 s.
+        //
+        // The tail cannot be slower than the status quo either: those rows get the same 1x1-blocked
+        // inner loop ggml's own kernel would have given the whole matrix. See loom.cpp BACKLOG.md
+        // P4.15.
+        const int64_t tail = m % 4;
+        const int64_t m0   = m - tail;
+        if (m0 == 0)
+            return false;                 // 1-3 rows in total: nothing to tile, let ggml have it
+        if (!matmul_aligned(m0, n))
+            return false;
+        if (tail != 0)
+            gemm_tail(m0, m, n);
+        return true;
+    }
+
+  private:
+    bool matmul_aligned(int64_t m, int64_t n) {
         // compute RM for only need tile with size RM&RM-1
 #if VECTOR_REGISTERS == 32
         if (m % 16 == 0 && (m/16 >= params->nth)) {
@@ -531,7 +559,18 @@ class tinyBLAS {
         return false;
     }
 
-  private:
+    // The rows `matmul_aligned` could not take -- at most three. Split by COLUMN across the threads,
+    // which is the only axis with enough of them to split by; each thread writes a disjoint slice of
+    // C, and the graph's own per-node barrier covers the hand-off (the barrier ending gemm() has
+    // already run by the time this is called).
+    NOINLINE void gemm_tail(int64_t i0, int64_t m, int64_t n) {
+        const int64_t j0 = (params->ith * n) / params->nth;
+        const int64_t j1 = ((params->ith + 1) * n) / params->nth;
+        for (int64_t i = i0; i < m; ++i)
+            for (int64_t j = j0; j < j1; ++j)
+                gemm_bloc<1, 1>(i, j);
+    }
+
     template <int RM, int RN, int BM>
     inline void mnpack(int64_t m, int64_t n, int64_t SIZE_N, int64_t BN) {
         if (SIZE_N == RN) {
