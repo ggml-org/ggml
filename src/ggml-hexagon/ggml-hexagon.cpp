@@ -2214,6 +2214,12 @@ static bool ggml_hexagon_matmul_is_hmx_eligible(
         return false;
     }
 
+    // HMX casts src1 to float and calculates its stride in floats. Restrict it to F32
+    // activations; the existing HVX path handles F16 correctly.
+    if (src1->type != GGML_TYPE_F32) {
+        return false;
+    }
+
     // HMX paths require K aligned to 32.
     if (ne00 % 32 != 0) {
         return false;
