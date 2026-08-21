@@ -71,23 +71,23 @@ if git ls-remote --tags origin "${VERSION}" | grep -q "${VERSION}"; then
 fi
 echo "Tag ${VERSION} does not exist on remote - OK"
 
-echo "Checking build-cpu.yml status for commit ${SHA}..."
+echo "Checking release.yml status for commit ${SHA}..."
 if [[ -z "${GITHUB_REPOSITORY:-}" ]]; then
     echo "Warning: GITHUB_REPOSITORY not set - skipping CI check (local run)"
 else
-    RUNS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/build-cpu.yml/runs?per_page=100" \
+    RUNS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?per_page=100" \
         --jq "[.workflow_runs[] | select(.head_sha == \"${SHA}\" and .conclusion == \"success\")] | length")
     if [[ "$RUNS" -eq 0 ]]; then
         if [[ "$DRY_RUN" == "true" ]]; then
-            echo "Warning: no successful build-cpu.yml run found for HEAD (${SHA}) (dry run, continuing)."
+            echo "Warning: no successful release.yml run found for HEAD (${SHA}) (dry run, continuing)."
             CHECKS_PASSED=false
         else
-            echo "Error: no successful build-cpu.yml run found for HEAD (${SHA})"
-            echo "The build-cpu workflow must complete successfully before making a release."
+            echo "Error: no successful release.yml run found for HEAD (${SHA})"
+            echo "The release workflow must complete successfully before making a release."
             exit 1
         fi
     else
-        echo "Found successful build-cpu.yml run for HEAD."
+        echo "Found successful release.yml run for HEAD."
     fi
 fi
 
