@@ -507,8 +507,7 @@ class tinyBLAS {
         // buckets 354 -> 208 ms, and the synthesis 1.94 -> 1.79 s.
         //
         // The tail cannot be slower than the status quo either: those rows get the same 1x1-blocked
-        // inner loop ggml's own kernel would have given the whole matrix. See loom.cpp BACKLOG.md
-        // P4.15.
+        // inner loop ggml's own kernel would have given the whole matrix.
         const int64_t tail = m % 4;
         const int64_t m0   = m - tail;
         if (m0 == 0)
