@@ -69,7 +69,9 @@ jobs:
 
             New version has been released.
 
-            **More info:** [dist : releases and versioning of ggml-org projects](https://github.com/ggml-org/ggml/discussions/1579)
+            ## More info
+
+            - [Releases and versioning of `ggml-org` projects](https://github.com/ggml-org/ggml/discussions/1579)
 
             ## ${{ steps.desc.outputs.changelog_title }}
 
