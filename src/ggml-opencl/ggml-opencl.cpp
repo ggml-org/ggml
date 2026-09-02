@@ -1319,6 +1319,14 @@ static void load_cl_kernels(ggml_backend_opencl_context *backend_ctx) {
         compile_opts += " -qcom-enable-large-buffer ";
     }
 
+    // Mali tiled GEMM half-precision variant: half local buffers (halves local-mem traffic)
+    // + half multiply on the fp16 pipe, fp32 accumulate (6.18 NaN lesson: never half-accumulate).
+    // Runtime gate GGML_OPENCL_MALI_FP16_LM; unset = original fp32 path, zero behavior change.
+    // Evidence: K Pad (Mali-G925) tiled GEMM hot path 2.86x, 512x768 3.42x, nan=0, lossless.
+    if (getenv("GGML_OPENCL_MALI_FP16_LM") != nullptr) {
+        compile_opts += " -DPP_MALI_FP16_LM";
+    }
+
     backend_ctx->kernel_compile_opts = compile_opts;
 
     GGML_LOG_INFO("ggml_opencl: loading OpenCL kernels");
