@@ -8,6 +8,15 @@
 #define BK 32
 #define TM 4
 #define TN 8
+// Mali fp16 variant: half local buffers (halves local-mem traffic) + half multiply, fp32 accumulate.
+// Gate: -DPP_MALI_FP16_LM compile flag injected via GGML_OPENCL_MALI_FP16_LM env (unset = original fp32 path).
+#ifdef PP_MALI_FP16_LM
+typedef half pp_buf_t;
+#define PP_STORE(x) ((half)(x))
+#else
+typedef float pp_buf_t;
+#define PP_STORE(x) (x)
+#endif
 
 kernel void kernel_mul_mm_q5_k_f32_l4_lm(
     global uchar4 * src0_q,
@@ -40,8 +49,8 @@ kernel void kernel_mul_mm_q5_k_f32_l4_lm(
     src1 = (global float4*)((global char*)src1 + offset1);
     dst  = (global float *)((global char*)dst  + offsetd);
 
-    local float buf_a[BM * BK];
-    local float buf_b[BN * BK];
+    local pp_buf_t buf_a[BM * BK];
+    local pp_buf_t buf_b[BN * BK];
 
     const int batch_idx = get_global_id(2);
 
@@ -72,8 +81,8 @@ kernel void kernel_mul_mm_q5_k_f32_l4_lm(
     int pos_b = (batch_idx   * batch_stride_b + ic * BN * stride_b) / LOAD_VEC_B;
 
     float sums[TM * TN];
-    float cache_a[TM];
-    float cache_b[TN];
+    pp_buf_t cache_a[TM];
+    pp_buf_t cache_b[TN];
 
     for (int i = 0; i < TM * TN; i++) {
         sums[i] = 0.0f;
@@ -126,10 +135,10 @@ kernel void kernel_mul_mm_q5_k_f32_l4_lm(
                     ((q.s3 >> (b * 4))&0x0F) | (h3 << 4)
                 )))*d + m;
 
-                buf_a[(loadr_a * LOAD_VEC_A + 0) * BM + loadc_a + l] = v1.s0;
+                buf_a[(loadr_a * LOAD_VEC_A + 0) * BM + loadc_a + l] = PP_STORE(v1.s0;
                 buf_a[(loadr_a * LOAD_VEC_A + 1) * BM + loadc_a + l] = v1.s1;
                 buf_a[(loadr_a * LOAD_VEC_A + 2) * BM + loadc_a + l] = v1.s2;
-                buf_a[(loadr_a * LOAD_VEC_A + 3) * BM + loadc_a + l] = v1.s3;
+                buf_a[(loadr_a * LOAD_VEC_A + 3) * BM + loadc_a + l] = v1.s3);
             } else {
                 buf_a[(loadr_a * LOAD_VEC_A + 0) * BM + loadc_a + l] = 0.0f;
                 buf_a[(loadr_a * LOAD_VEC_A + 1) * BM + loadc_a + l] = 0.0f;
@@ -170,7 +179,11 @@ kernel void kernel_mul_mm_q5_k_f32_l4_lm(
             for (int cc = 0; cc < TN; cc++) {
                 for (int cr = 0; cr < TM; cr++) {
                     const int sums_idx = cc*TM + cr;
-                    sums[sums_idx] = mad(cache_a[cr], cache_b[cc], sums[sums_idx]);
+                    #ifdef PP_MALI_FP16_LM
+                sums[sums_idx] += (float)(cache_a[cr] * cache_b[cc]);
+#else
+                sums[sums_idx] = mad(cache_a[cr], cache_b[cc], sums[sums_idx]);
+#endif
                 }
             }
         }
