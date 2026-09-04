@@ -3351,6 +3351,12 @@ static std::unique_ptr<vk_queue> ggml_vk_create_queue(vk_device& device, uint32_
     }
 
     h->queue = device->device.getQueue2(queue_info2);
+    if (!h->queue) {
+        // Some older drivers (e.g. AMD 20.x on Windows, Vulkan 1.2) return a null handle
+        // from vkGetDeviceQueue2; the queue was created without flags, so vkGetDeviceQueue
+        // returns the same one.
+        h->queue = device->device.getQueue(queue_family_index, queue_index);
+    }
     h->device = device;
     q->handle = h;
 
