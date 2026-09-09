@@ -3,7 +3,7 @@
 from glob import glob
 import os
 
-HEAD_SIZES_KQ = [40, 64, 72, 80, 96, 112, 128, 192, 256, 320, 512, 576]
+HEAD_SIZES_KQ = [32, 40, 64, 72, 80, 96, 112, 128, 192, 256, 320, 512, 576]
 
 # DKQ -> DV override for asymmetric head dims.
 HEAD_SIZES_V_OVERRIDE = {576: 512, 320: 256, 192: 128}

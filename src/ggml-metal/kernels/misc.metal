@@ -187,6 +187,85 @@ kernel void kernel_pad_reflect_1d_f32(
     }
 }
 
+kernel void kernel_win_part_f32(
+    constant ggml_metal_kargs_win_part & args,
+    device const char * src0,
+    device       char * dst,
+    uint gid[[thread_position_in_grid]]) {
+
+    const int64_t np = (int64_t)args.npx * args.npy;
+    const int64_t total = args.ne0 * args.ne1 * args.ne2 * np;
+
+    if ((int64_t)gid >= total) return;
+
+    // Decompose flat gid -> (i0, i1, i2, i3) in output tensor [ne0, w, w, np]
+    const int64_t i0   = gid % args.ne0;
+    const int64_t rem1 = gid / args.ne0;
+    const int64_t i1   = rem1 % args.ne1;
+    const int64_t rem2 = rem1 / args.ne1;
+    const int64_t i2   = rem2 % args.ne2;
+    const int64_t i3   = rem2 / args.ne2;
+
+    // Window grid coordinates
+    const int64_t py = i3 / args.npx;
+    const int64_t px = i3 % args.npx;
+
+    // Map to source coordinates
+    const int64_t src_col = px * args.w + i1;
+    const int64_t src_row = py * args.w + i2;
+
+    // Output address (contiguous)
+    device float * dst_ptr = (device float *)(dst + (i3 * args.ne2 * args.ne1 * args.ne0
+                                                   + i2 * args.ne1 * args.ne0
+                                                   + i1 * args.ne0) * sizeof(float));
+
+    if (src_col >= args.ne01 || src_row >= args.ne02) {
+        dst_ptr[i0] = 0.0f;
+    } else {
+        device const float * src_ptr = (device const float *)(src0 + src_row * args.nb02 + src_col * args.nb01);
+        dst_ptr[i0] = src_ptr[i0];
+    }
+}
+
+kernel void kernel_win_unpart_f32(
+    constant ggml_metal_kargs_win_unpart & args,
+    device const char * src0,
+    device       char * dst,
+    uint gid[[thread_position_in_grid]]) {
+
+    const int64_t total = args.ne0 * args.ne1 * args.ne2;
+
+    if ((int64_t)gid >= total) return;
+
+    // Decompose flat gid -> (i0, i1, i2) in output tensor [ne0, w0, h0]
+    const int64_t i0  = gid % args.ne0;
+    const int64_t rem = gid / args.ne0;
+    const int64_t i1  = rem % args.ne1;
+    const int64_t i2  = rem / args.ne1;
+
+    // Which window does this output element belong to?
+    const int64_t px = i1 / args.w;
+    const int64_t py = i2 / args.w;
+
+    // Position within the window
+    const int64_t wx = i1 % args.w;
+    const int64_t wy = i2 % args.w;
+
+    // Source window index
+    const int64_t win_idx = py * args.npx + px;
+
+    // Read from source: [C, w, w, np]
+    device const float * src_ptr = (device const float *)(src0 + win_idx * args.nb03
+                                                               + wy * args.nb02
+                                                               + wx * args.nb01);
+
+    // Write to output: [C, w0, h0, 1] contiguous
+    device float * dst_ptr = (device float *)(dst + (i2 * args.ne1 * args.ne0
+                                                   + i1 * args.ne0) * sizeof(float));
+
+    dst_ptr[i0] = src_ptr[i0];
+}
+
 kernel void kernel_arange_f32(
     constant   ggml_metal_kargs_arange & args,
     device        char * dst,
