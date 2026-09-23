@@ -5,7 +5,7 @@ Write a summary of the change log in a few sections:
 ```
 ## Overview
 
-[an overview using 1 to 3 sentences]
+[a single paragraph overview of all changes]
 
 ### API changes (if applicable)
 
@@ -25,9 +25,11 @@ For all changes, you can refer to the `llama.cpp` and `whisper.cpp` repositories
 
 Guidelines:
 
-- All bullet point in the summary should be concise and rarely exceed a single line of 120 characters
+- All bullet point in the summary should be concise and rarely exceed a single line of 120 characters (excluding PR links)
 - Avoid mentioning that the changes are synchronized - this is not relevant
 - Avoid mentioning specific models - focus on generality of the ggml framework
 - Replace `(llama/XXXX)` and `(whisper/XXXX)` with a link to the respective PR
+- Combine related topics (a full list of commits will be appended independently at end of the summary)
+- Skip minor-impact notes (e.g. "fix compile warnings", "refactored code", ...)
 
-Output just the summary in a markdown block, without any extra text.
+Output just the summary in a markdown block, without any extra text. Save it to a local text file called `release-notes-vX.Y.Z.txt`.
