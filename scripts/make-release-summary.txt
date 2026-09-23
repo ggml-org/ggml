@@ -30,4 +30,4 @@ Guidelines:
 - Avoid mentioning specific models - focus on generality of the ggml framework
 - Replace `(llama/XXXX)` and `(whisper/XXXX)` with a link to the respective PR
 
-Output just the summary in a markdown block, without any extra text.
+Output just the summary in a markdown block, without any extra text. Save it to a local text file called `release-notes-vX.Y.Z.txt`.
