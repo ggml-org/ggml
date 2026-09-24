@@ -32,28 +32,81 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref && github.ref || github.run_id }}
   cancel-in-progress: true
 
+env:
+  # note: this is dud token to avoid rate limiting (https://github.com/ggml-org/llama.cpp/pull/25706#issuecomment-4979941302)
+  HF_TOKEN: ${{ secrets.HF_TOKEN_CI }}
+
 jobs:
   x64-nvidia-cuda:
-    runs-on: [self-hosted, Linux, X64, NVIDIA]
+    runs-on: "hf-jobs-t4-small:cuda13"
 
     steps:
       - name: Clone
         id: checkout
         uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y cmake libssl-dev time unzip wget python3 python3-venv python3-pip
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.24
+        with:
+          restore: false
+          save: false
+
+      - name: ccache-buckets-restore
+        uses: ./.github/actions/ccache-buckets
+        with:
+          key: self-hosted-x64-nvidia-cuda
+          folder: ggml
+          hf_bucket: ggml-org/cache
 
       - name: Test
         id: ggml-ci
         run: |
           nvidia-smi
-          GG_BUILD_CUDA=1 bash ./ci/run.sh ~/results/ggml /mnt/ggml
+          GG_BUILD_CUDA=1 CUDACXX=/usr/local/cuda/bin/nvcc bash ./ci/run.sh ~/results/ggml ~/mnt/ggml
+
+      - name: ccache-buckets-save
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: ./.github/actions/ccache-buckets
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN_CACHE_OUTPUT }}
+        with:
+          key: self-hosted-x64-nvidia-cuda
+          folder: ggml
+          evict-old-files: 1d
+          hf_bucket: ggml-org/cache
+          save: true
 
   x64-nvidia-vulkan-cm:
+    # runs-on: "hf-jobs-t4-small:ubuntu26_04"
     runs-on: [self-hosted, Linux, X64, NVIDIA]
 
     steps:
       - name: Clone
         id: checkout
         uses: actions/checkout@v6
+
+      # - name: Install dependencies
+      #   run: |
+      #     sudo apt update
+      #     sudo apt install -y build-essential cmake libxcb-xinput0 libxcb-xinerama0 libxcb-cursor-dev libvulkan-dev glslc spirv-headers vulkan-tools mesa-vulkan-drivers libglvnd0 libgl1 libglx0 libegl1 libgles2 libssl-dev time unzip wget python3 python3-venv python3-pip
+
+      # - name: ccache
+      #   uses: ggml-org/ccache-action@v1.2.24
+      #   with:
+      #     restore: false
+      #     save: false
+
+      # - name: ccache-buckets-restore
+      #   uses: ./.github/actions/ccache-buckets
+      #   with:
+      #     key: self-hosted-x64-nvidia-vulkan-cm
+      #     folder: ggml
+      #     hf_bucket: ggml-org/cache
 
       - name: Test
         id: ggml-ci
@@ -61,7 +114,20 @@ jobs:
           vulkaninfo --summary
           GG_BUILD_VULKAN=1 GGML_VK_DISABLE_COOPMAT2=1 bash ./ci/run.sh ~/results/ggml /mnt/ggml
 
+      # - name: ccache-buckets-save
+      #   if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+      #   uses: ./.github/actions/ccache-buckets
+      #   env:
+      #     HF_TOKEN: ${{ secrets.HF_TOKEN_CACHE_OUTPUT }}
+      #   with:
+      #     key: self-hosted-x64-nvidia-vulkan-cm
+      #     folder: ggml
+      #     evict-old-files: 1d
+      #     hf_bucket: ggml-org/cache
+      #     save: true
+
   x64-nvidia-vulkan-cm2:
+    # runs-on: "hf-jobs-t4-small:ubuntu26_04"
     runs-on: [self-hosted, Linux, X64, NVIDIA, COOPMAT2]
 
     steps:
@@ -69,11 +135,41 @@ jobs:
         id: checkout
         uses: actions/checkout@v6
 
+      # - name: Install dependencies
+      #   run: |
+      #     sudo apt update
+      #     sudo apt install -y build-essential cmake libxcb-xinput0 libxcb-xinerama0 libxcb-cursor-dev libvulkan-dev glslc spirv-headers vulkan-tools mesa-vulkan-drivers libglvnd0 libgl1 libglx0 libegl1 libgles2 libssl-dev time unzip wget python3 python3-venv python3-pip
+
+      # - name: ccache
+      #   uses: ggml-org/ccache-action@v1.2.24
+      #   with:
+      #     restore: false
+      #     save: false
+
+      # - name: ccache-buckets-restore
+      #   uses: ./.github/actions/ccache-buckets
+      #   with:
+      #     key: self-hosted-x64-nvidia-vulkan-cm2
+      #     folder: ggml
+      #     hf_bucket: ggml-org/cache
+
       - name: Test
         id: ggml-ci
         run: |
           vulkaninfo --summary
           GG_BUILD_VULKAN=1 bash ./ci/run.sh ~/results/ggml /mnt/ggml
+
+      # - name: ccache-buckets-save
+      #   if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+      #   uses: ./.github/actions/ccache-buckets
+      #   env:
+      #     HF_TOKEN: ${{ secrets.HF_TOKEN_CACHE_OUTPUT }}
+      #   with:
+      #     key: self-hosted-x64-nvidia-vulkan-cm2
+      #     folder: ggml
+      #     evict-old-files: 1d
+      #     hf_bucket: ggml-org/cache
+      #     save: true
 
   # TODO: provision AMX-compatible machine
   #x64-cpu-amx:
@@ -115,3 +211,46 @@ jobs:
         run: |
           vulkaninfo --summary
           GG_BUILD_VULKAN=1 bash ./ci/run.sh ~/results/ggml ~/mnt/ggml
+
+  amd-vulkan:
+    runs-on: [self-hosted, Linux, gfx1201]
+    container: "ubuntu:26.04"
+
+    steps:
+      - name: Clone
+        id: checkout
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          apt update
+          apt install -y build-essential git git-lfs jq cmake libxcb-xinput0 libxcb-xinerama0 libxcb-cursor-dev libvulkan-dev glslc spirv-headers vulkan-tools mesa-vulkan-drivers libglvnd0 libgl1 libglx0 libegl1 libgles2 libssl-dev time unzip wget python3 python3-venv python3-pip
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.24
+        with:
+          restore: false
+          save: false
+
+      - name: ccache-buckets-restore
+        uses: ./.github/actions/ccache-buckets
+        with:
+          key: self-hosted-amd-vulkan
+          folder: ggml
+          hf_bucket: ggml-org/cache
+
+      - name: Test
+        id: ggml-ci
+        run: |
+          vulkaninfo --summary
+          GG_BUILD_VULKAN=1 bash ./ci/run.sh ~/results/ggml ~/mnt/ggml
+      - name: ccache-buckets-save
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: ./.github/actions/ccache-buckets
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN_CACHE_OUTPUT }}
+        with:
+          key: self-hosted-amd-vulkan
+          folder: ggml
+          evict-old-files: 1d
+          hf_bucket: ggml-org/cache
+          save: true
