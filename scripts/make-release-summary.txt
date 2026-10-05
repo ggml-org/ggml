@@ -26,10 +26,12 @@ For all changes, you can refer to the `llama.cpp` and `whisper.cpp` repositories
 Guidelines:
 
 - All bullet point in the summary should be concise and rarely exceed a single line of 120 characters (excluding PR links)
+- Do not wrap or break lines within a bullet point or paragraph - each bullet point must fit on a single line (PR links allowed to exceed the line limit)
 - Avoid mentioning that the changes are synchronized - this is not relevant
 - Avoid mentioning specific models - focus on generality of the ggml framework
 - Replace `(llama/XXXX)` and `(whisper/XXXX)` with a link to the respective PR
-- Combine related topics (a full list of commits will be appended independently at end of the summary)
+- Group similar/related items into a single bullet with multiple trailing PR links, one bullet per topic
+  - A full list of commits will be appended independently at end of the summary, so it is not a problem to skip some less important changes
 - Skip minor-impact notes (e.g. "fix compile warnings", "refactored code", ...)
 
 Output just the summary in a markdown block, without any extra text. Save it to a local text file called `release-notes-vX.Y.Z.txt`.
