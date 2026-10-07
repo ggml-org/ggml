@@ -134,7 +134,7 @@ models/gpt-2-117M/ggml-model.bin         100%[===============================>] 
 Done! Model '117M' saved in 'models/gpt-2-117M/ggml-model.bin'
 You can now use it like this:
 
-  $ ./bin/gpt-2 -m models/gpt-2-117M/ggml-model.bin -p "This is an example"
+  $ ./bin/gpt-2-backend -m models/gpt-2-117M/ggml-model.bin -p "This is an example"
 
 ```
 
