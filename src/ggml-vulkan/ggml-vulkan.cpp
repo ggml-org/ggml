@@ -3287,18 +3287,30 @@ static std::unique_ptr<vk_queue> ggml_vk_create_queue(vk_device& device, uint32_
     q->transfer_only = transfer_only;
 
     std::shared_ptr<vk_queue_handle> h;
-    vk::DeviceQueueInfo2 queue_info2{};
-    queue_info2.queueFamilyIndex = queue_family_index;
-    queue_info2.queueIndex = queue_index;
 
     if (device->has_internally_synchronized_queues) {
         h = std::make_shared<vk_queue_handle_unsynchronized>();
-        queue_info2.flags = eInternallySynchronizedKHR;
+        // Build the queue info with fully deterministic object representation:
+        // some translation layers (e.g. wine's winevulkan) look queues up by
+        // memcmp over the entire struct, so padding bytes must be zeroed —
+        // vulkan.hpp's constructors only initialize the named members.
+        VkDeviceQueueInfo2 queue_info2;
+        memset(&queue_info2, 0, sizeof(queue_info2));
+        queue_info2.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2;
+        queue_info2.flags = (VkDeviceQueueCreateFlags) eInternallySynchronizedKHR;
+        queue_info2.queueFamilyIndex = queue_family_index;
+        queue_info2.queueIndex = queue_index;
+        VkQueue raw_queue = VK_NULL_HANDLE;
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceQueue2(device->device, &queue_info2, &raw_queue);
+        h->queue = vk::Queue(raw_queue);
     } else {
         h = std::make_shared<vk_queue_handle_synchronized>();
+        // plain getQueue: no flags to pass, and it avoids the struct-identity
+        // matching of getQueue2 in translation layers
+        h->queue = device->device.getQueue(queue_family_index, queue_index);
     }
 
-    h->queue = device->device.getQueue2(queue_info2);
+    GGML_ASSERT(h->queue && "vkGetDeviceQueue returned a null queue");
     h->device = device;
     q->handle = h;
 
