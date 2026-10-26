@@ -703,13 +703,13 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
                 int64_t current_nelements = info.t.ne[0];
                 for (int i = 1; i < GGML_MAX_DIMS; ++i) {
                     if (info.t.ne[i] > 1) { // 1 or 0 won't cause an overflow
-                        if (INT64_MAX / info.t.ne[i] < current_nelements) {
-                             ok = false;
-                             break;
-                         }
-                     }
-                     current_nelements *= info.t.ne[i];
-                 }
+                        if (INT64_MAX / info.t.ne[i] <= current_nelements) {
+                            ok = false;
+                            break;
+                        }
+                        current_nelements *= info.t.ne[i];
+                    }
+                }
                  if (!ok) {
                      GGML_LOG_ERROR("%s: incorrect shape for a tensor '%s' may cause overflow errors: "
                          "(%" PRIi64 ", %" PRIi64 ", %" PRIi64 ", %" PRIi64 ") is >= INT64_MAX (%" PRIi64 ")\n",
