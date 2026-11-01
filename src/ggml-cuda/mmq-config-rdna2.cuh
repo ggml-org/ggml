@@ -109,6 +109,10 @@ static constexpr __host__ __device__ ggml_cuda_mmq_config ggml_cuda_mmq_get_conf
     CASE(GGML_TYPE_Q3_K, 256, 2, 128,  48, GGML_CUDA_MMQ_SRAM_LAYOUT_Q3_K, MMQ_ITER_K, false, false);
     CASE(GGML_TYPE_Q3_K, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q3_K, MMQ_ITER_K, false, false);
 
+    // gfx1030 has no tuned wide-J row for Q4_K even though the compile-time
+    // limit is J <= 128; wide-N GEMMs re-read the weight tile N/J times.
+    CASE(GGML_TYPE_Q4_K, 256, 2, 128, 128, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, true);  // J128_PATCH
+    CASE(GGML_TYPE_Q4_K, 256, 2, 128, 128, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, false); // J128_PATCH
     CASE(GGML_TYPE_Q4_K, 256, 2, 128,   8, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, true);
     CASE(GGML_TYPE_Q4_K, 256, 2, 128,  16, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, true);
     CASE(GGML_TYPE_Q4_K, 256, 2, 128,  32, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1, MMQ_ITER_K, false, true);
