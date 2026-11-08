@@ -150,6 +150,8 @@ Fields, including arrays, are written sequentially without alignment unless othe
 
 Models are little-endian by default. They can also come in big-endian for use with big-endian computers; in this case, all values (including metadata values and tensors) will also be big-endian. At the time of writing, there is no way to determine if a model is big-endian; this may be rectified in future versions. If no additional information is provided, assume the model is little-endian.
 
+The `ggml_type` values below mirror `enum ggml_type` in [`include/ggml.h`](../include/ggml.h), which is authoritative and gains new values over time, so readers should take type codes and block sizes from there.
+
 ```c
 enum ggml_type: uint32_t {
     GGML_TYPE_F32     = 0,
@@ -192,7 +194,11 @@ enum ggml_type: uint32_t {
     // GGML_TYPE_IQ4_NL_4_8 = 37,
     // GGML_TYPE_IQ4_NL_8_8 = 38,
     GGML_TYPE_MXFP4   = 39, // MXFP4 (1 block)
-    GGML_TYPE_COUNT   = 40,
+    GGML_TYPE_NVFP4   = 40, // NVFP4 (4 blocks, E4M3 scale)
+    GGML_TYPE_Q1_0    = 41,
+    GGML_TYPE_Q2_0    = 42,
+    GGML_TYPE_F8_E4M3 = 43,
+    GGML_TYPE_COUNT   = 44,
 };
 
 enum gguf_metadata_value_type: uint32_t {
