@@ -445,6 +445,17 @@ bool gpt2_eval(
                 ggml_get_rows(ctx0, model.wte, embd),
                 ggml_get_rows(ctx0, model.wpe, position));
 
+    // KQ_mask = mask_past()
+    // [n_past + N, N, 1]
+    const int n_kv = n_past + N;
+
+    struct ggml_tensor * KQ_mask = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_kv, N, 1);
+    for (int i1 = 0; i1 < N; ++i1) {
+        for (int i0 = 0; i0 < n_kv; ++i0) {
+            ((float *) KQ_mask->data)[i0 + i1*n_kv] = i0 > n_past + i1 ? -INFINITY : 0.0f;
+        }
+    }
+
     for (int il = 0; il < n_layer; ++il) {
         struct ggml_tensor * cur;
 
@@ -535,7 +546,7 @@ bool gpt2_eval(
 
             // KQ_masked = mask_past(KQ_scaled)
             // [n_past + N, N, 12]
-            struct ggml_tensor * KQ_masked = ggml_diag_mask_inf_inplace(ctx0, KQ_scaled, n_past);
+            struct ggml_tensor * KQ_masked = ggml_add(ctx0, KQ_scaled, KQ_mask);
 
             // KQ = soft_max(KQ_masked)
             // [n_past + N, N, 12]

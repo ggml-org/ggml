@@ -430,6 +430,14 @@ struct ggml_cgraph * gpt2_graph(
                 ggml_get_rows(ctx, model.wte, embd),
                 ggml_get_rows(ctx, model.wpe, position));
 
+    // KQ_mask = mask_past()
+    // [n_past + N, N, 1]
+    const int n_kv = n_past + N;
+
+    struct ggml_tensor * KQ_mask = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, n_kv, N, 1);
+    ggml_set_name(KQ_mask, "KQ_mask");
+    ggml_set_input(KQ_mask);
+
     for (int il = 0; il < n_layer; ++il) {
         struct ggml_tensor * cur;
 
@@ -521,7 +529,7 @@ struct ggml_cgraph * gpt2_graph(
 
             // KQ_masked = mask_past(KQ_scaled)
             // [n_past + N, N, 12]
-            struct ggml_tensor * KQ_masked = ggml_diag_mask_inf(ctx, KQ_scaled, n_past);
+            struct ggml_tensor * KQ_masked = ggml_add(ctx, KQ_scaled, KQ_mask);
 
             // KQ = soft_max(KQ_masked)
             // [n_past + N, N, 12]
@@ -696,6 +704,14 @@ bool gpt2_eval(
     struct ggml_tensor * position = ggml_graph_get_tensor(gf, "position");
     for (int i = 0; i < N; ++i) {
         ((int32_t *) position->data)[i] = n_past + i;
+    }
+
+    struct ggml_tensor * KQ_mask = ggml_graph_get_tensor(gf, "KQ_mask");
+    const int n_kv = n_past + N;
+    for (int i1 = 0; i1 < N; ++i1) {
+        for (int i0 = 0; i0 < n_kv; ++i0) {
+            ((float *) KQ_mask->data)[i0 + i1*n_kv] = i0 > n_past + i1 ? -INFINITY : 0.0f;
+        }
     }
 
     // run the computation
