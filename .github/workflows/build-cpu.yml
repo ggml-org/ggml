@@ -33,9 +33,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # TODO: simplify the following workflows using a matrix
-  x64-cpu-low-perf:
-    runs-on: ubuntu-22.04
+  cpu:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x64-cpu-low-perf
+            os: ubuntu-22.04
+            packages: build-essential libcurl4-openssl-dev
+            env: GG_BUILD_LOW_PERF=1
+          - name: arm64-cpu-low-perf
+            os: ubuntu-22.04-arm
+            packages: build-essential libcurl4-openssl-dev
+            env: GG_BUILD_LOW_PERF=1
+          - name: x64-cpu-high-perf
+            os: ubuntu-22.04
+            packages: build-essential libcurl4-openssl-dev
+            env: ""
+          - name: arm64-cpu-high-perf
+            os: ubuntu-22.04-arm
+            packages: build-essential libcurl4-openssl-dev
+            env: GG_BUILD_NO_SVE=1 GG_BUILD_NO_BF16=1 GG_BUILD_EXTRA_TESTS_0=1
+          - name: arm64-cpu-high-perf-sve
+            os: ubuntu-22.04-arm
+            packages: build-essential libcurl4-openssl-dev
+            env: GG_BUILD_NO_BF16=1 GG_BUILD_EXTRA_TESTS_0=1
+          # Microsoft doesn't support 32-bit runners; this cross-compiles.
+          - name: x86-cpu-32-bit
+            os: ubuntu-22.04
+            packages: build-essential gcc-multilib g++-multilib
+            env: GG_BUILD_32BIT=1
 
     steps:
       - name: Clone
@@ -45,142 +74,16 @@ jobs:
       - name: ccache
         uses: ggml-org/ccache-action@v1.2.16
         with:
-          key: ggml-ci-x64-cpu-low-perf
+          key: ggml-ci-${{ matrix.name }}
           evict-old-files: 1d
 
       - name: Dependencies
         id: depends
         run: |
           sudo apt-get update
-          sudo apt-get install build-essential libcurl4-openssl-dev
+          sudo apt-get install ${{ matrix.packages }}
 
       - name: Test
         id: ggml-ci
         run: |
-          LLAMA_ARG_THREADS=$(nproc) GG_BUILD_LOW_PERF=1 bash ./ci/run.sh ./tmp/results ./tmp/mnt
-
-  arm64-cpu-low-perf:
-    runs-on: ubuntu-22.04-arm
-
-    steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
-
-      - name: ccache
-        uses: ggml-org/ccache-action@v1.2.16
-        with:
-          key: ggml-ci-arm64-cpu-low-perf
-          evict-old-files: 1d
-
-      - name: Dependencies
-        id: depends
-        run: |
-          sudo apt-get update
-          sudo apt-get install build-essential libcurl4-openssl-dev
-
-      - name: Test
-        id: ggml-ci
-        run: |
-          LLAMA_ARG_THREADS=$(nproc) GG_BUILD_LOW_PERF=1 bash ./ci/run.sh ./tmp/results ./tmp/mnt
-
-  x64-cpu-high-perf:
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
-
-      - name: ccache
-        uses: ggml-org/ccache-action@v1.2.16
-        with:
-          key: ggml-ci-x64-cpu-high-perf
-          evict-old-files: 1d
-
-      - name: Dependencies
-        id: depends
-        run: |
-          sudo apt-get update
-          sudo apt-get install build-essential libcurl4-openssl-dev
-
-      - name: Test
-        id: ggml-ci
-        run: |
-          LLAMA_ARG_THREADS=$(nproc) bash ./ci/run.sh ./tmp/results ./tmp/mnt
-
-  arm64-cpu-high-perf:
-    runs-on: ubuntu-22.04-arm
-
-    steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
-
-      - name: ccache
-        uses: ggml-org/ccache-action@v1.2.16
-        with:
-          key: ggml-ci-arm64-cpu-high-perf
-          evict-old-files: 1d
-
-      - name: Dependencies
-        id: depends
-        run: |
-          sudo apt-get update
-          sudo apt-get install build-essential libcurl4-openssl-dev
-
-      - name: Test
-        id: ggml-ci
-        run: |
-          LLAMA_ARG_THREADS=$(nproc) GG_BUILD_NO_SVE=1 GG_BUILD_NO_BF16=1 GG_BUILD_EXTRA_TESTS_0=1 bash ./ci/run.sh ./tmp/results ./tmp/mnt
-
-  arm64-cpu-high-perf-sve:
-    runs-on: ubuntu-22.04-arm
-
-    steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
-
-      - name: ccache
-        uses: ggml-org/ccache-action@v1.2.16
-        with:
-          key: ggml-ci-arm64-cpu-high-perf-sve
-          evict-old-files: 1d
-
-      - name: Dependencies
-        id: depends
-        run: |
-          sudo apt-get update
-          sudo apt-get install build-essential libcurl4-openssl-dev
-
-      - name: Test
-        id: ggml-ci
-        run: |
-          LLAMA_ARG_THREADS=$(nproc) GG_BUILD_NO_BF16=1 GG_BUILD_EXTRA_TESTS_0=1 bash ./ci/run.sh ./tmp/results ./tmp/mnt
-
-  # Microsfot doesn't support 32bit runners; this cross-compiles.
-  x86-cpu-32-bit:
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
-
-      - name: ccache
-        uses: ggml-org/ccache-action@v1.2.16
-        with:
-          key: ggml-ci-x86-cpu-32-bit
-          evict-old-files: 1d
-
-      - name: Dependencies
-        id: depends
-        run: |
-          sudo apt-get update
-          sudo apt-get install build-essential gcc-multilib g++-multilib
-
-      - name: Test
-        id: ggml-ci
-        run: |
-          LLAMA_ARG_THREADS=$(nproc) GG_BUILD_32BIT=1 bash ./ci/run.sh ./tmp/results ./tmp/mnt
+          LLAMA_ARG_THREADS=$(nproc) ${{ matrix.env }} bash ./ci/run.sh ./tmp/results ./tmp/mnt
