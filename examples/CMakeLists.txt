@@ -14,6 +14,12 @@ endif()
 add_library(common STATIC common.cpp)
 target_include_directories(common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+if (GGML_BUILD_TESTS)
+    add_executable(test-sampling test-sampling.cpp)
+    target_link_libraries(test-sampling PRIVATE common)
+    add_test(NAME test-sampling COMMAND $<TARGET_FILE:test-sampling>)
+endif()
+
 add_library(common-ggml STATIC common-ggml.cpp)
 target_link_libraries(common-ggml PRIVATE ggml)
 target_include_directories(common-ggml PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
