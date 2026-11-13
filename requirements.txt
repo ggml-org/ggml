@@ -1,5 +1,6 @@
 accelerate==0.19.0
-numpy~=2.2.6
+numpy~=2.2.6; python_version < "3.14"
+numpy~=2.4.6; python_version >= "3.14"
 sentencepiece>=0.1.98,<0.3.0
 torchvision~=0.26.0
 transformers==5.5.1
