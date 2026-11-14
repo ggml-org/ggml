@@ -22,6 +22,14 @@ GGML_BACKEND_API ggml_backend_buffer_type_t ggml_backend_vk_buffer_type(size_t d
 // pinned host buffer for use with the CPU backend for faster copies between CPU and GPU
 GGML_BACKEND_API ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type(void);
 
+// Scan cgraph for MATMUL scratch sizes and record them in a thread-local hint.
+// The next ggml_backend_vk_buffer_type_alloc_buffer() for this backend inflates
+// the compute allocation to cover scratch, sub-allocating all four prealloc
+// buffers from the same VkDeviceMemory as the compute region.
+// Call BEFORE ggml_gallocr_alloc_graph() / alloc_compute_buffer().
+GGML_BACKEND_API void ggml_backend_vk_set_scratch_workspace_hint(ggml_backend_t backend,
+                                                                   const ggml_cgraph * cgraph);
+
 GGML_BACKEND_API ggml_backend_reg_t ggml_backend_vk_reg(void);
 
 #ifdef  __cplusplus
