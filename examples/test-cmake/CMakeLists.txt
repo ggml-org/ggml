@@ -3,7 +3,8 @@ project(ggml-simple)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(ggml 1.0.0 REQUIRED)
+find_package(ggml CONFIG REQUIRED PATHS ${CMAKE_PREFIX_PATH} NO_DEFAULT_PATH)
+message(STATUS "Found ggml ${ggml_VERSION}: ${ggml_CONFIG}")
 
 set(TEST_TARGET test-cmake)
 add_executable(test-cmake test-cmake.cpp)
