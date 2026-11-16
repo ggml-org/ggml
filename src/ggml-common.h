@@ -74,7 +74,7 @@ typedef sycl::half2 ggml_half2;
 #if defined(GGML_COMMON_DECL)
 
 #ifndef __cplusplus
-#ifndef static_assert
+#if !defined(static_assert) && !(defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L)
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201100L)
 #define static_assert(cond, msg) _Static_assert(cond, msg)
 #else
