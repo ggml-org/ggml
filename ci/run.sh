@@ -107,6 +107,10 @@ if [ ! -z ${GG_BUILD_NO_SVE} ]; then
     CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.5-a+fp16+i8mm"
 fi
 
+if [ ! -z ${GG_BUILD_32BIT} ]; then
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DCMAKE_EXE_LINKER_FLAGS=-m32 -DCMAKE_SHARED_LINKER_FLAGS=-m32"
+fi
+
 ## helpers
 
 # download a file if it does not exist or if it is outdated
