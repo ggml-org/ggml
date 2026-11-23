@@ -371,7 +371,10 @@ if true ; then
     fi
     source "$MNT/venv/bin/activate"
 
-    pip install -r ${SRC}/requirements.txt --disable-pip-version-check
+    if ! pip install -r ${SRC}/requirements.txt --disable-pip-version-check; then
+        echo "Error: Failed to install Python requirements from ${SRC}/requirements.txt."
+        exit 1
+    fi
 fi
 
 
