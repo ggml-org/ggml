@@ -1,12 +1,15 @@
 accelerate==0.19.0
 numpy~=2.2.6; python_version < "3.14"
-numpy~=2.4.6; python_version >= "3.14"
+numpy~=2.4.6; python_version >= "3.14" and python_version < "3.15"
+numpy~=2.5.5; python_version >= "3.15"
 sentencepiece>=0.1.98,<0.3.0
-torchvision~=0.26.0
+torchvision~=0.26.0; python_version < "3.15"
+torchvision~=0.29.2; python_version >= "3.15"
 transformers==5.5.1
 gguf>=0.1.0
 keras==3.10.0
 tensorflow==2.20.0; python_version < "3.14"
 
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch~=2.11.0
+torch~=2.11.0; python_version < "3.15"
+torch~=2.15.0; python_version >= "3.15"
