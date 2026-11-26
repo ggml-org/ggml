@@ -1,5 +1,9 @@
 # ggml
 
+<p align="center">
+  <b>English</b> · <a href="https://github.com/ggml-org/ggml/blob/master/README.zh.md">简体中文</a>
+</p>
+
 <div align="center">
 
 <img src="https://raw.githubusercontent.com/ggml-org/media/refs/heads/master/logo/ggml-logo.jpg" width="256" height="256" alt="ggml logo" />
