@@ -408,6 +408,17 @@ gpt_vocab::id gpt_sample_top_k_top_p(
     int n_logits = vocab.id_to_token.size();
     top_k = std::min(top_k, n_logits);
 
+    if (temp <= 0) {
+        // Select the first token with the highest logit without sampling.
+        gpt_vocab::id max_id = 0;
+        for (int i = 1; i < n_logits; ++i) {
+            if (logits[i] > logits[max_id]) {
+                max_id = i;
+            }
+        }
+        return max_id;
+    }
+
     std::vector<std::pair<double, gpt_vocab::id>> logits_id;
     logits_id.reserve(n_logits);
 
