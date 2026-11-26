@@ -48,7 +48,7 @@ uint64_t ggml_graph_next_uid(void);
 // if C99 - static_assert is noop
 // ref: https://stackoverflow.com/a/53923785/4039976
 #ifndef __cplusplus
-    #ifndef static_assert
+    #if !defined(static_assert) && !(defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L)
         #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201100L)
             #define static_assert(cond, msg) _Static_assert(cond, msg)
         #else
