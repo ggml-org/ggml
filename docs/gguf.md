@@ -284,7 +284,7 @@ struct gguf_header_t {
     // Magic number to announce that this is a GGUF file.
     // Must be `GGUF` at the byte level: `0x47` `0x47` `0x55` `0x46`.
     // Your executor might do little-endian byte order, so it might
-    // check for 0x46554747 and letting the endianness cancel out.
+    // check for 0x46554747 and let the endianness cancel out.
     // Consider being *very* explicit about the byte order here.
     uint32_t magic;
     // The version of the format implemented.
